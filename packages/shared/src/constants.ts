@@ -1487,6 +1487,7 @@ export const PLUGIN_UI_SLOT_TYPES = [
   "appShellOverlay",
   "organizationSwitcher",
   "toolbarButton",
+  "issueHeaderAction",
   "contextMenuItem",
   "commentAnnotation",
   "commentContextMenuItem",

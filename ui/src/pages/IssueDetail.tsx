@@ -7260,6 +7260,20 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
           </span>
         )}
 
+        <PluginSlotOutlet
+          slotTypes={["issueHeaderAction"]}
+          entityType="issue"
+          context={{
+            companyId: issue.companyId,
+            projectId: issue.projectId ?? null,
+            entityId: issue.id,
+            entityType: "issue",
+          }}
+          className="flex items-center gap-0.5"
+          itemClassName="inline-flex"
+          missingBehavior="placeholder"
+        />
+
         <IssueAttributionByline
           issue={issue}
           agentMap={agentMap}
