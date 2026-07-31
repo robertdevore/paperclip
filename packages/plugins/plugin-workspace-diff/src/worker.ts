@@ -29,6 +29,23 @@ function readOptionalString(value: unknown): string | null {
   return trimmed || null;
 }
 
+export function formatReviewCommentBody(input: {
+  path: string;
+  line: number;
+  side: "additions" | "deletions";
+  body: string;
+}) {
+  const location = `${input.path}:${input.line}`;
+  const sideLabel = input.side === "deletions" ? "deleted line" : "changed line";
+  return [
+    `**Inline code review · \`${location}\` (${sideLabel})**`,
+    "",
+    "Please address this requested change in the workspace before reporting the task complete.",
+    "",
+    input.body.trim(),
+  ].join("\n");
+}
+
 export function resolveDefaultBaseRef(input: {
   workspaceBaseRef?: unknown;
   projectWorkspaceDefaultRef?: unknown;
@@ -207,7 +224,7 @@ const plugin = definePlugin({
       }
       const comment = await ctx.issues.createComment(
         issueId,
-        `<!-- paperclip-workspace-review:${JSON.stringify({ path, line, side })} -->\n${body}`,
+        `<!-- paperclip-workspace-review:${JSON.stringify({ path, line, side })} -->\n${formatReviewCommentBody({ path, line, side, body })}`,
         companyId,
         actorUserId ? { actorUserId } : undefined,
       );

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTestHarness } from "@paperclipai/plugin-sdk/testing";
 import manifest from "../src/manifest.js";
-import plugin, { resolveDefaultBaseRef } from "../src/worker.js";
+import plugin, { formatReviewCommentBody, resolveDefaultBaseRef } from "../src/worker.js";
 
 const execFileAsync = promisify(execFile);
 const tempRoots: string[] = [];
@@ -170,6 +170,21 @@ describe("workspace diff plugin", () => {
       projectWorkspaceDefaultRef: null,
       projectWorkspaceRepoRef: "",
     })).toBeNull();
+  });
+
+  it("makes inline review comments understandable in the thread and actionable for agents", () => {
+    expect(formatReviewCommentBody({
+      path: "src/index.js",
+      line: 7,
+      side: "additions",
+      body: "Please add a test for the empty input case.",
+    })).toBe([
+      "**Inline code review · `src/index.js:7` (changed line)**",
+      "",
+      "Please address this requested change in the workspace before reporting the task complete.",
+      "",
+      "Please add a test for the empty input case.",
+    ].join("\n"));
   });
 
   it("uses project workspace default refs for execution workspace head diffs", async () => {
