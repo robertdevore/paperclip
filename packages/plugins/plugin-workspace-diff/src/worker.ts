@@ -205,12 +205,29 @@ const plugin = definePlugin({
       if (!issueId || !companyId || !path || !body || !Number.isInteger(line) || line < 1) {
         throw new Error("issueId, companyId, path, line, and body are required");
       }
-      return ctx.issues.createComment(
+      const comment = await ctx.issues.createComment(
         issueId,
         `<!-- paperclip-workspace-review:${JSON.stringify({ path, line, side })} -->\n${body}`,
         companyId,
         actorUserId ? { actorUserId } : undefined,
       );
+
+      const issue = await ctx.issues.get(issueId, companyId);
+      let wakeup: { queued: boolean; runId: string | null } | null = null;
+      if (issue?.assigneeAgentId) {
+        if (issue.status === "done") {
+          await ctx.issues.update(issueId, { status: "todo" }, companyId, actorUserId ? { actorUserId } : undefined);
+        }
+        const refreshedIssue = await ctx.issues.get(issueId, companyId);
+        if (refreshedIssue && !["backlog", "cancelled"].includes(refreshedIssue.status)) {
+          wakeup = await ctx.issues.requestWakeup(issueId, companyId, {
+            reason: "workspace_review_comment_added",
+            contextSource: "workspace_diff_review",
+            actorUserId,
+          });
+        }
+      }
+      return { comment, wakeup };
     });
   },
 

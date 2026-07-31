@@ -245,16 +245,24 @@ function WorkspacePatchDiff({
   patch,
   options,
   annotations,
+  onStartComment,
 }: {
   patch: string;
   options: WorkspacePatchDiffOptions;
   annotations?: DiffLineAnnotation<ReviewAnnotation>[];
+  onStartComment: (line: number, side: "additions" | "deletions") => void;
 }) {
   const fileDiff = useMemo(() => getSingularPatch(patch), [patch]);
   return (
     <PatchDiff
       patch={patch}
-      options={options}
+      options={{
+        ...options,
+        enableGutterUtility: true,
+        onLineNumberClick: ({ lineNumber, annotationSide }) => {
+          onStartComment(lineNumber, annotationSide);
+        },
+      }}
       lineAnnotations={annotations}
       renderAnnotation={(annotation) => (
         <div className="border-t border-border bg-amber-50/70 px-3 py-2 text-xs dark:bg-amber-500/10">
@@ -382,6 +390,7 @@ function FileDiffPanel({
             ) : (
               <WorkspacePatchDiff
                 patch={patch.patch}
+                onStartComment={onStartComment}
                 annotations={reviewComments.length > 0 ? reviewComments.map((comment) => ({
                   side: comment.side,
                   lineNumber: comment.line,
@@ -653,7 +662,7 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
       setReviewDraft(null);
       setReviewBody("");
       await refreshReviewComments();
-      toast({ title: "Review comment added", body: `${reviewDraft.path}:${reviewDraft.line}` });
+      toast({ title: "Review comment added", body: `${reviewDraft.path}:${reviewDraft.line} · agent notified` });
     } catch (caught) {
       toast({ title: "Could not add review comment", body: caught instanceof Error ? caught.message : String(caught), tone: "error" });
     } finally {

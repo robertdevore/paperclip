@@ -17,6 +17,8 @@ const manifest: PaperclipPluginManifestV1 = {
     "ui.detailTab.register",
     "ui.action.register",
     "issues.read",
+    "issues.update",
+    "issues.wakeup",
     "issue.comments.read",
     "issue.comments.create",
     "issue.comments.create_human_attributed",
