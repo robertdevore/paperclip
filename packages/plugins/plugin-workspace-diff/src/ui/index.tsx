@@ -1,10 +1,9 @@
-import type { PluginDetailTabProps } from "@paperclipai/plugin-sdk/ui";
-import { usePluginData, usePluginToast } from "@paperclipai/plugin-sdk/ui";
-import { DIFFS_TAG_NAME, getSingularPatch } from "@pierre/diffs";
-import type { PatchDiffProps } from "@pierre/diffs/react";
-import { useFileDiffInstance } from "@pierre/diffs/react";
+import type { PluginCommentContextMenuItemProps, PluginDetailTabProps } from "@paperclipai/plugin-sdk/ui";
+import { useHostContext, usePluginAction, usePluginData, usePluginToast } from "@paperclipai/plugin-sdk/ui";
+import { getSingularPatch } from "@pierre/diffs";
+import type { DiffLineAnnotation, PatchDiffProps } from "@pierre/diffs/react";
+import { PatchDiff } from "@pierre/diffs/react";
 import {
-  createElement,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -28,8 +27,11 @@ import {
 import type { WorkspaceDiffResponse } from "../contracts.js";
 
 type WorkspaceDiffData = WorkspaceDiffResponse;
-type WorkspacePatchDiffOptions = PatchDiffProps<undefined>["options"];
+type WorkspacePatchDiffOptions = PatchDiffProps<ReviewAnnotation>["options"];
 type DiffViewMode = "working-tree" | "head";
+
+type ReviewComment = { id: string; path: string; line: number; side: "additions" | "deletions"; body: string; createdAt: string };
+type ReviewAnnotation = { path: string; comments: ReviewComment[]; onStart: (line: number, side: "additions" | "deletions") => void };
 
 type LucideIconProps = { size?: number };
 
@@ -247,24 +249,44 @@ function FileRow({
 function WorkspacePatchDiff({
   patch,
   options,
+  annotations,
 }: {
   patch: string;
   options: WorkspacePatchDiffOptions;
+  annotations?: DiffLineAnnotation<ReviewAnnotation>[];
 }) {
   const fileDiff = useMemo(() => getSingularPatch(patch), [patch]);
-  const { ref } = useFileDiffInstance({
-    fileDiff,
-    options,
-    metrics: undefined,
-    lineAnnotations: undefined,
-    selectedLines: undefined,
-    prerenderedHTML: undefined,
-    hasGutterRenderUtility: false,
-    hasCustomHeader: false,
-    disableWorkerPool: false,
-  });
-
-  return createElement(DIFFS_TAG_NAME, { ref });
+  return (
+    <PatchDiff
+      patch={patch}
+      options={options}
+      lineAnnotations={annotations}
+      renderAnnotation={(annotation) => (
+        <div className="border-t border-border bg-amber-50/70 px-3 py-2 text-xs dark:bg-amber-500/10">
+          {annotation.metadata?.comments.map((comment) => (
+            <div key={comment.id} className="mb-1 last:mb-0 text-foreground">
+              <span className="mr-2 text-muted-foreground">Review</span>{comment.body}
+            </div>
+          ))}
+        </div>
+      )}
+      renderGutterUtility={(getHoveredLine) => {
+        const hovered = getHoveredLine();
+        if (!hovered) return null;
+        return (
+          <button
+            type="button"
+            className="rounded border border-border bg-background px-1 text-[10px] text-muted-foreground shadow-sm hover:text-foreground"
+            title="Add review comment"
+            onClick={() => annotations?.[0]?.metadata?.onStart(hovered.lineNumber, hovered.side)}
+          >
+            +
+          </button>
+        );
+      }}
+      disableWorkerPool={false}
+    />
+  );
 }
 
 function EmptyState() {
@@ -327,10 +349,14 @@ function FileDiffPanel({
   file,
   mode,
   lineWrap,
+  reviewComments,
+  onStartComment,
 }: {
   file: DiffFileViewModel;
   mode: DiffRenderMode;
   lineWrap: boolean;
+  reviewComments: ReviewComment[];
+  onStartComment: (line: number, side: "additions" | "deletions") => void;
 }) {
   const warning = warningText(file);
   if (warning) {
@@ -361,6 +387,15 @@ function FileDiffPanel({
             ) : (
               <WorkspacePatchDiff
                 patch={patch.patch}
+                annotations={reviewComments.length > 0 ? reviewComments.map((comment) => ({
+                  side: comment.side,
+                  lineNumber: comment.line,
+                  metadata: { path: file.path, comments: [comment], onStart: onStartComment },
+                })) : [{
+                  side: "additions",
+                  lineNumber: 0,
+                  metadata: { path: file.path, comments: [], onStart: onStartComment },
+                }]}
                 options={{
                   diffStyle: mode,
                   overflow: lineWrap ? "wrap" : "scroll",
@@ -408,8 +443,11 @@ function CollapsedFilePanel({
   );
 }
 
-export function ChangesTab({ context }: PluginDetailTabProps) {
+type ReviewContext = { issueId: string; actorUserId: string };
+
+export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { reviewContext?: ReviewContext }) {
   const toast = usePluginToast();
+  const createLineComment = usePluginAction("create-line-comment");
   const [mode, setMode] = useState<DiffRenderMode>("split");
   const [lineWrap, setLineWrap] = useState(false);
   const [view, setView] = useState<DiffViewMode>(() => readInitialView());
@@ -421,6 +459,9 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [fileSidebarWidth, setFileSidebarWidth] = useState(() => readStoredFileSidebarWidth());
   const [fileSidebarResizing, setFileSidebarResizing] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState<{ path: string; line: number; side: "additions" | "deletions" } | null>(null);
+  const [reviewBody, setReviewBody] = useState("");
+  const [reviewSaving, setReviewSaving] = useState(false);
   const fileSidebarWidthRef = useRef(fileSidebarWidth);
   const fileSidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const fileSectionRefs = useRef(new Map<string, HTMLElement>());
@@ -445,6 +486,11 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
   }), [context.companyId, context.entityId, context.entityType, context.projectId, effectiveView, includeUntracked, requestedBaseRef]);
 
   const { data, loading, error, refresh } = usePluginData<WorkspaceDiffData>("workspace-diff", params);
+  const { data: reviewCommentsData, refresh: refreshReviewComments } = usePluginData<ReviewComment[]>("review-comments", reviewContext ? {
+    issueId: reviewContext.issueId,
+    companyId: context.companyId ?? "",
+  } : undefined);
+  const reviewComments = reviewCommentsData ?? [];
   const files = useMemo(() => toFileViewModels(data), [data]);
   const summary = useMemo(() => diffSummary(data), [data]);
   const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0] ?? null;
@@ -600,8 +646,56 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
     }
   };
 
+  const saveReviewComment = async () => {
+    if (!reviewDraft || !reviewBody.trim() || !reviewContext || !context.companyId) return;
+    setReviewSaving(true);
+    try {
+      await createLineComment({
+        issueId: reviewContext.issueId,
+        companyId: context.companyId,
+        actorUserId: reviewContext.actorUserId,
+        path: reviewDraft.path,
+        line: reviewDraft.line,
+        side: reviewDraft.side,
+        body: reviewBody.trim(),
+      });
+      setReviewDraft(null);
+      setReviewBody("");
+      await refreshReviewComments();
+      toast({ title: "Review comment added", body: `${reviewDraft.path}:${reviewDraft.line}` });
+    } catch (caught) {
+      toast({ title: "Could not add review comment", body: caught instanceof Error ? caught.message : String(caught), tone: "error" });
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
+      {reviewContext ? (
+        <div className="flex items-end gap-2 border border-border bg-muted/20 p-3">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 text-xs font-medium text-muted-foreground">
+              {reviewDraft ? `Comment on ${reviewDraft.path}:${reviewDraft.line}` : "Select a line to leave a review comment"}
+            </div>
+            {reviewDraft ? (
+              <textarea
+                value={reviewBody}
+                onChange={(event) => setReviewBody(event.target.value)}
+                placeholder="Suggest a change or ask a question…"
+                className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
+                autoFocus
+              />
+            ) : null}
+          </div>
+          {reviewDraft ? (
+            <div className="flex gap-1">
+              <button type="button" className={buttonClass(false)} onClick={() => { setReviewDraft(null); setReviewBody(""); }}>Cancel</button>
+              <button type="button" className={buttonClass(true)} disabled={reviewSaving || !reviewBody.trim()} onClick={() => void saveReviewComment()}>{reviewSaving ? "Posting…" : "Comment"}</button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div key="toolbar" className="flex flex-col gap-3 border-b border-border pb-3 lg:flex-row lg:items-center lg:justify-between">
         <div key="summary" className="min-w-0">
           <div key="summary-line" className="flex flex-wrap items-center gap-2 text-sm">
@@ -806,7 +900,14 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
                     </div>
                   </div>
                   {expandedFiles.has(file.path) ? (
-                    <FileDiffPanel key="diff" file={file} mode={mode} lineWrap={lineWrap} />
+                    <FileDiffPanel
+                      key="diff"
+                      file={file}
+                      mode={mode}
+                      lineWrap={lineWrap}
+                      reviewComments={reviewComments.filter((comment) => comment.path === file.path)}
+                      onStartComment={(line, side) => setReviewDraft({ path: file.path, line, side })}
+                    />
                   ) : (
                     <CollapsedFilePanel
                       key="collapsed"
@@ -819,6 +920,52 @@ export function ChangesTab({ context }: PluginDetailTabProps) {
           </main>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Full-screen review surface opened directly from an agent comment. */
+export function WorkspaceDiffReviewModal({ context }: PluginCommentContextMenuItemProps) {
+  const hostContext = useHostContext();
+  const issueId = context.parentEntityId;
+  const companyId = context.companyId ?? hostContext.companyId ?? "";
+  const { data, loading, error } = usePluginData<{ workspaceId: string | null; projectId: string | null }>("comment-review-context", {
+    issueId,
+    companyId,
+  });
+
+  if (loading) return <div className="p-6 text-sm text-muted-foreground">Preparing workspace review…</div>;
+  if (error) return <div className="p-6 text-sm text-destructive">Unable to prepare workspace review: {error.message}</div>;
+  if (!data?.workspaceId) {
+    return (
+      <div className="p-6">
+        <div className="text-sm font-medium text-foreground">No execution workspace is linked to this task</div>
+        <div className="mt-1 text-sm text-muted-foreground">The agent comment can still be reviewed in the task thread.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-[min(92vh,960px)] min-w-0 flex-col overflow-hidden bg-background p-4 sm:p-6">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Agent workspace review</div>
+          <h2 className="mt-1 text-lg font-semibold text-foreground">Review changes and leave line comments</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Comments are posted to the task thread with a stable file and line anchor.</p>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <ChangesTab
+          context={{
+            ...hostContext,
+            companyId,
+            projectId: data.projectId ?? hostContext.projectId,
+            entityId: data.workspaceId,
+            entityType: "execution_workspace",
+          }}
+          reviewContext={{ issueId, actorUserId: hostContext.userId ?? "" }}
+        />
+      </div>
     </div>
   );
 }
