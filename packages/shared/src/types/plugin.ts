@@ -389,7 +389,7 @@ export interface PluginManagedSkillResolution {
  * @see PLUGIN_SPEC.md §19 — UI Extension Model
  */
 export interface PluginUiSlotDeclaration {
-  /** The type of UI mount point (page, detailTab, taskDetailView, toolbarButton, etc.). */
+  /** The type of UI mount point (page, detailTab, taskDetailView, issueHeaderAction, toolbarButton, etc.). */
   type: PluginUiSlotType;
   /** Unique slot identifier within the plugin. */
   id: string;
@@ -399,7 +399,7 @@ export interface PluginUiSlotDeclaration {
   exportName: string;
   /**
    * Entity targets for context-sensitive slots.
-   * Required for `detailTab`, `taskDetailView`, and `contextMenuItem`.
+   * Required for entity-scoped slots such as `detailTab`, `taskDetailView`, and `issueHeaderAction`.
    */
   entityTypes?: PluginUiSlotEntityType[];
   /**

@@ -4340,6 +4340,19 @@ export function IssueDetail() {
                 <Archive className="h-4 w-4" />
               </Button>
             )}
+            <PluginSlotOutlet
+              slotTypes={["issueHeaderAction"]}
+              entityType="issue"
+              context={{
+                companyId: issue.companyId,
+                projectId: issue.projectId ?? null,
+                entityId: issue.id,
+                entityType: "issue",
+              }}
+              className="flex items-center gap-0.5"
+              itemClassName="inline-flex"
+              missingBehavior="placeholder"
+            />
             {fileViewerEnabled ? (
               <Button
                 variant="ghost"

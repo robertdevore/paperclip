@@ -326,6 +326,7 @@ export interface FileTreeProps {
 export interface IssuesListFilters {
   status?: string;
   projectId?: string;
+  issueIds?: string[];
   parentId?: string;
   assigneeAgentId?: string;
   participantAgentId?: string;

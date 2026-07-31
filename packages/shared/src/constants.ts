@@ -1399,6 +1399,7 @@ export const PLUGIN_UI_SLOT_TYPES = [
   "projectSidebarItem",
   "globalToolbarButton",
   "toolbarButton",
+  "issueHeaderAction",
   "contextMenuItem",
   "commentAnnotation",
   "commentContextMenuItem",

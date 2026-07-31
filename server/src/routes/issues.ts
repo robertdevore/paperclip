@@ -4803,6 +4803,15 @@ export function issueRoutes(
     const hasPlanDocument = parseOptionalBooleanQuery(req.query.hasPlanDocument);
     const includeLiveDescendantSummary = parseOptionalBooleanQuery(req.query.includeLiveDescendantSummary);
     const assigneeAgentFilterRaw = req.query.assigneeAgentId;
+    const rawIssueIds = req.query.issueIds;
+    const issueIds = (Array.isArray(rawIssueIds) ? rawIssueIds : rawIssueIds ? [rawIssueIds] : [])
+      .flatMap((value) => String(value).split(","))
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (issueIds.length > 5000 || issueIds.some((issueId) => !isUuidLike(issueId))) {
+      res.status(400).json({ error: "issueIds must contain at most 5000 UUIDs" });
+      return;
+    }
     let assigneeAgentId: string | null | undefined;
 
     if (assigneeUserFilterRaw === "me" && (!assigneeUserId || req.actor.type !== "board")) {
@@ -4882,6 +4891,7 @@ export function issueRoutes(
       inboxArchivedByUserId,
       unreadForUserId,
       projectId: req.query.projectId as string | undefined,
+      issueIds: issueIds.length > 0 ? issueIds : undefined,
       workspaceId: req.query.workspaceId as string | undefined,
       executionWorkspaceId: req.query.executionWorkspaceId as string | undefined,
       parentId: req.query.parentId as string | undefined,
