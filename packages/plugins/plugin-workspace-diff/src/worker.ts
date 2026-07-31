@@ -5,6 +5,7 @@ import { workspaceDiffService } from "./workspace-diff.js";
 const PLUGIN_NAME = "workspace-diff";
 
 const REVIEW_MARKER = /^<!-- paperclip-workspace-review:([\s\S]*?) -->\n?/;
+const EMPTY_DIFF_SUMMARY = { additions: 0, deletions: 0, fileCount: 0 };
 
 function reviewMarker(input: unknown) {
   if (typeof input !== "string") return null;
@@ -143,6 +144,42 @@ const plugin = definePlugin({
       }
 
       return { workspaceId: null, projectId: issue.projectId ?? null, entityType: null };
+    });
+
+    ctx.data.register("comment-diff-summary", async (params: Record<string, unknown>) => {
+      const issueId = readString(params.issueId);
+      const companyId = readString(params.companyId);
+      if (!issueId || !companyId) return EMPTY_DIFF_SUMMARY;
+      const issue = await ctx.issues.get(issueId, companyId);
+      if (!issue) return EMPTY_DIFF_SUMMARY;
+
+      if (issue.executionWorkspaceId) {
+        const workspace = await ctx.executionWorkspaces.get(issue.executionWorkspaceId, companyId);
+        if (!workspace) return EMPTY_DIFF_SUMMARY;
+        const diff = await workspaceDiff.getDiff(
+          workspace,
+          workspaceDiffQuerySchema.parse({ view: "working-tree", includeUntracked: false }),
+        );
+        return { additions: diff.stats.additions, deletions: diff.stats.deletions, fileCount: diff.stats.fileCount };
+      }
+
+      if (!issue.projectId) return EMPTY_DIFF_SUMMARY;
+      const workspaces = await ctx.projects.listWorkspaces(issue.projectId, companyId);
+      const workspace = workspaces.find((candidate) => candidate.isPrimary) ?? workspaces[0] ?? null;
+      if (!workspace) return EMPTY_DIFF_SUMMARY;
+      const diff = await workspaceDiff.getDiff(
+        {
+          id: workspace.id,
+          companyId,
+          cwd: workspace.path,
+          baseRef: resolveDefaultBaseRef({
+            projectWorkspaceDefaultRef: workspace.defaultRef,
+            projectWorkspaceRepoRef: workspace.repoRef,
+          }),
+        },
+        workspaceDiffQuerySchema.parse({ view: "working-tree", includeUntracked: false }),
+      );
+      return { additions: diff.stats.additions, deletions: diff.stats.deletions, fileCount: diff.stats.fileCount };
     });
 
     ctx.data.register("review-comments", async (params: Record<string, unknown>) => {

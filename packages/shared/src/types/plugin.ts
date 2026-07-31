@@ -440,6 +440,11 @@ export interface PluginLauncherRenderDeclaration {
   environment: PluginLauncherRenderEnvironment;
   /** Optional size hint for the destination surface. */
   bounds?: PluginLauncherBounds;
+  /** Optional host-rendered summary for compact change-count triggers. */
+  trigger?: {
+    type: "diffSummary";
+    dataKey: string;
+  };
 }
 
 /**

@@ -469,6 +469,10 @@ export type PluginLauncherActionDeclarationInput =
 export const pluginLauncherRenderDeclarationSchema = z.object({
   environment: z.enum(PLUGIN_LAUNCHER_RENDER_ENVIRONMENTS),
   bounds: z.enum(PLUGIN_LAUNCHER_BOUNDS).optional(),
+  trigger: z.object({
+    type: z.literal("diffSummary"),
+    dataKey: z.string().min(1),
+  }).optional(),
 }).superRefine((value, ctx) => {
   if (!value.bounds) {
     return;

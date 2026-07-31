@@ -232,6 +232,58 @@ function launcherTriggerClassName(placementZone: PluginLauncherPlacementZone): s
   }
 }
 
+function LauncherTrigger({
+  displayName,
+  launcher,
+  placementZone,
+  context,
+  onClick,
+}: {
+  displayName: string;
+  launcher: ResolvedPluginLauncher;
+  placementZone: PluginLauncherPlacementZone;
+  context?: PluginLauncherContext;
+  onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+}) {
+  const trigger = launcher.render?.trigger;
+  const { data } = useQuery({
+    queryKey: ["plugins", "launcher-trigger", launcher.pluginId, trigger?.dataKey, context?.entityId, context?.parentEntityId],
+    queryFn: async () => {
+      if (!trigger || !context?.companyId) return null;
+      const response = await pluginsApi.bridgeGetData(
+        launcher.pluginId,
+        trigger.dataKey,
+        {
+          issueId: context.parentEntityId ?? null,
+          companyId: context.companyId,
+        },
+        context.companyId,
+      );
+      return response.data as { additions?: number; deletions?: number; fileCount?: number };
+    },
+    enabled: Boolean(trigger && context?.companyId),
+    staleTime: 5_000,
+  });
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={launcherTriggerClassName(placementZone)}
+      onClick={onClick}
+      aria-label={displayName}
+    >
+      {trigger && data ? (
+        <span className="inline-flex items-center gap-1 font-mono text-xs" aria-label={`${data.additions ?? 0} additions, ${data.deletions ?? 0} deletions`}>
+          <span className="text-emerald-600 dark:text-emerald-400">+{data.additions ?? 0}</span>
+          <span className="text-red-600 dark:text-red-400">−{data.deletions ?? 0}</span>
+        </span>
+      ) : displayName}
+    </Button>
+  );
+}
+
 function launcherShellBoundsStyle(bounds: PluginLauncherBounds | null): CSSProperties {
   switch (bounds) {
     case "compact":
@@ -756,24 +808,16 @@ function DefaultLauncherTrigger({
   displayName,
   launcher,
   placementZone,
+  context,
   onClick,
 }: {
   displayName?: string;
   launcher: ResolvedPluginLauncher;
   placementZone: PluginLauncherPlacementZone;
+  context?: PluginLauncherContext;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }) {
-  return (
-    <Button
-      type="button"
-      variant={placementZone === "toolbarButton" || placementZone === "globalToolbarButton" ? "outline" : "ghost"}
-      size="sm"
-      className={launcherTriggerClassName(placementZone)}
-      onClick={onClick}
-    >
-      {displayName ?? launcher.displayName}
-    </Button>
-  );
+  return <LauncherTrigger displayName={displayName ?? launcher.displayName} launcher={launcher} placementZone={placementZone} context={context} onClick={onClick} />;
 }
 
 type PluginLauncherOutletProps = {
@@ -819,6 +863,7 @@ export function PluginLauncherOutlet({
             displayName={launcherDisplayName(launcher, contributionsByPluginId.get(launcher.pluginId))}
             launcher={launcher}
             placementZone={launcher.placementZone}
+            context={context}
             onClick={(event) => {
               const contribution = contributionsByPluginId.get(launcher.pluginId);
               if (!contribution) return;

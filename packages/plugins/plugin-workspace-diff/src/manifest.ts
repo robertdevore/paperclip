@@ -46,7 +46,11 @@ const manifest: PaperclipPluginManifestV1 = {
         placementZone: "commentContextMenuItem",
         entityTypes: ["comment"],
         action: { type: "openModal", target: REVIEW_CHANGES_MODAL },
-        render: { environment: "hostOverlay", bounds: "full" },
+        render: {
+          environment: "hostOverlay",
+          bounds: "full",
+          trigger: { type: "diffSummary", dataKey: "comment-diff-summary" },
+        },
       },
     ],
   },
