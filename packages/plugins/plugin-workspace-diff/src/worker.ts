@@ -4,6 +4,21 @@ import { workspaceDiffService } from "./workspace-diff.js";
 
 const PLUGIN_NAME = "workspace-diff";
 
+const REVIEW_MARKER = /^<!-- paperclip-workspace-review:([\s\S]*?) -->\n?/;
+
+function reviewMarker(input: unknown) {
+  if (typeof input !== "string") return null;
+  const match = input.match(REVIEW_MARKER);
+  if (!match?.[1]) return null;
+  try {
+    const parsed = JSON.parse(match[1]) as { path?: unknown; line?: unknown; side?: unknown };
+    if (typeof parsed.path !== "string" || typeof parsed.line !== "number" || !Number.isInteger(parsed.line) || parsed.line < 1) return null;
+    return { path: parsed.path, line: parsed.line, side: parsed.side === "deletions" ? "deletions" as const : "additions" as const };
+  } catch {
+    return null;
+  }
+}
+
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -96,6 +111,46 @@ const plugin = definePlugin({
           projectWorkspaceDefaultRef: projectWorkspaceDefaultBaseRef,
         }),
       }, workspaceDiffQuerySchema.parse(params));
+    });
+
+    ctx.data.register("comment-review-context", async (params: Record<string, unknown>) => {
+      const issueId = readString(params.issueId);
+      const companyId = readString(params.companyId);
+      if (!issueId || !companyId) throw new Error("issueId and companyId are required");
+      const issue = await ctx.issues.get(issueId, companyId);
+      if (!issue?.executionWorkspaceId) return { workspaceId: null, projectId: issue?.projectId ?? null };
+      return { workspaceId: issue.executionWorkspaceId, projectId: issue.projectId ?? null };
+    });
+
+    ctx.data.register("review-comments", async (params: Record<string, unknown>) => {
+      const issueId = readString(params.issueId);
+      const companyId = readString(params.companyId);
+      if (!issueId || !companyId) throw new Error("issueId and companyId are required");
+      const comments = await ctx.issues.listComments(issueId, companyId);
+      return comments.flatMap((comment) => {
+        const marker = reviewMarker(comment.body);
+        if (!marker) return [];
+        return [{ ...marker, id: comment.id, body: comment.body.replace(REVIEW_MARKER, "").trim(), createdAt: comment.createdAt }];
+      });
+    });
+
+    ctx.actions.register("create-line-comment", async (params: Record<string, unknown>) => {
+      const issueId = readString(params.issueId);
+      const companyId = readString(params.companyId);
+      const actorUserId = readString(params.actorUserId);
+      const path = readString(params.path);
+      const body = readString(params.body);
+      const line = Number(params.line);
+      const side = params.side === "deletions" ? "deletions" : "additions";
+      if (!issueId || !companyId || !path || !body || !Number.isInteger(line) || line < 1) {
+        throw new Error("issueId, companyId, path, line, and body are required");
+      }
+      return ctx.issues.createComment(
+        issueId,
+        `<!-- paperclip-workspace-review:${JSON.stringify({ path, line, side })} -->\n${body}`,
+        companyId,
+        actorUserId ? { actorUserId } : undefined,
+      );
     });
   },
 
