@@ -592,10 +592,10 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
   useEffect(() => {
     const defaultBaseRef = data?.defaultBaseRef?.trim();
     if (!defaultBaseRef) return;
-    if (!baseRef.trim() && !baseRefTouchedRef.current) {
+    if (view === "head" && !baseRef.trim() && !baseRefTouchedRef.current) {
       setBaseRef(defaultBaseRef);
     }
-  }, [baseRef, data?.defaultBaseRef]);
+  }, [baseRef, data?.defaultBaseRef, view]);
 
   useEffect(() => {
     if (files.length === 0) {
