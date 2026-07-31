@@ -179,9 +179,9 @@ describe("workspace diff plugin", () => {
       side: "additions",
       body: "Please add a test for the empty input case.",
     })).toBe([
-      "**Inline code review · `src/index.js:7` (changed line)**",
+      "**Inline code review · `src/index.js:7` (added line)**",
       "",
-      "Please address this requested change in the workspace before reporting the task complete.",
+      "Please address this requested change (or answer the question) in the workspace before reporting the task complete.",
       "",
       "Please add a test for the empty input case.",
     ].join("\n"));

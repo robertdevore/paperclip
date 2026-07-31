@@ -36,11 +36,11 @@ export function formatReviewCommentBody(input: {
   body: string;
 }) {
   const location = `${input.path}:${input.line}`;
-  const sideLabel = input.side === "deletions" ? "deleted line" : "changed line";
+  const sideLabel = input.side === "deletions" ? "deleted line" : "added line";
   return [
     `**Inline code review · \`${location}\` (${sideLabel})**`,
     "",
-    "Please address this requested change in the workspace before reporting the task complete.",
+    "Please address this requested change (or answer the question) in the workspace before reporting the task complete.",
     "",
     input.body.trim(),
   ].join("\n");
