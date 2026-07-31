@@ -20,6 +20,14 @@ function reviewMarker(input: unknown) {
   }
 }
 
+function reviewBody(input: string) {
+  const visible = input.replace(REVIEW_MARKER, "").trim();
+  const lines = visible.split("\n");
+  return lines[0]?.startsWith("**Inline code review ·")
+    ? lines.slice(4).join("\n").trim()
+    : visible;
+}
+
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -207,7 +215,13 @@ const plugin = definePlugin({
       return comments.flatMap((comment) => {
         const marker = reviewMarker(comment.body);
         if (!marker) return [];
-        return [{ ...marker, id: comment.id, body: comment.body.replace(REVIEW_MARKER, "").trim(), createdAt: comment.createdAt }];
+        return [{
+          ...marker,
+          id: comment.id,
+          body: reviewBody(comment.body),
+          legacy: !comment.body.replace(REVIEW_MARKER, "").trim().startsWith("**Inline code review ·"),
+          createdAt: comment.createdAt,
+        }];
       });
     });
 
@@ -245,6 +259,20 @@ const plugin = definePlugin({
         }
       }
       return { comment, wakeup };
+    });
+
+    ctx.actions.register("delete-line-comment", async (params: Record<string, unknown>) => {
+      const issueId = readString(params.issueId);
+      const companyId = readString(params.companyId);
+      const actorUserId = readString(params.actorUserId);
+      const commentId = readString(params.commentId);
+      if (!issueId || !companyId || !actorUserId || !commentId) {
+        throw new Error("issueId, companyId, actorUserId, and commentId are required");
+      }
+      const comments = await ctx.issues.listComments(issueId, companyId);
+      const comment = comments.find((candidate) => candidate.id === commentId);
+      if (!comment || !reviewMarker(comment.body)) throw new Error("Review comment not found");
+      return ctx.issues.deleteComment(issueId, commentId, companyId, { actorUserId });
     });
   },
 

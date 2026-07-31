@@ -1348,6 +1348,7 @@ export interface PluginIssueAttachmentContent {
  * - `issue.comments.read` for `listComments`
  * - `issue.comments.create` for `createComment`
  * - `issue.comments.create_human_attributed` for `createComment` calls that pass `actorUserId`
+ * - `issue.comments.delete` for `deleteComment` calls that pass `actorUserId`
  * - `issue.interactions.create` for `createInteraction`, `suggestTasks`, `askUserQuestions`, `requestConfirmation`, and `requestCheckboxConfirmation`
  * - `issue.interactions.read` for `listInteractions`
  * - `issue.interactions.respond` for `respondInteraction`
@@ -1477,6 +1478,12 @@ export interface PluginIssuesClient {
     body: string,
     companyId: string,
     options?: { authorAgentId?: string; actorUserId?: string },
+  ): Promise<IssueComment>;
+  deleteComment(
+    issueId: string,
+    commentId: string,
+    companyId: string,
+    options?: { actorUserId?: string },
   ): Promise<IssueComment>;
   createInteraction(
     issueId: string,

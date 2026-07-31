@@ -1737,6 +1737,20 @@ export function createTestHarness(options: TestHarnessOptions): TestHarness {
         issueComments.set(issueId, current);
         return comment;
       },
+      async deleteComment(issueId, commentId, companyId, options) {
+        requireCapability(manifest, capabilitySet, "issue.comments.delete");
+        const parentIssue = issues.get(issueId);
+        if (!isInCompany(parentIssue, companyId)) throw new Error(`Issue not found: ${issueId}`);
+        const current = issueComments.get(issueId) ?? [];
+        const comment = current.find((candidate) => candidate.id === commentId);
+        if (!comment) throw new Error("Comment not found");
+        if (options?.actorUserId && comment.authorUserId !== options.actorUserId) {
+          throw new Error("Only the comment author can delete comments");
+        }
+        const deleted = { ...comment, body: "", deletedAt: new Date(), presentation: null, metadata: null };
+        issueComments.set(issueId, current.map((candidate) => candidate.id === commentId ? deleted : candidate));
+        return deleted;
+      },
       async createInteraction(issueId, interaction, companyId, options) {
         requireCapability(manifest, capabilitySet, "issue.interactions.create");
         const parentIssue = issues.get(issueId);

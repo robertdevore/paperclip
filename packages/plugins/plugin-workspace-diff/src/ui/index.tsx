@@ -30,8 +30,14 @@ type WorkspaceDiffData = WorkspaceDiffResponse;
 type WorkspacePatchDiffOptions = PatchDiffProps<ReviewAnnotation>["options"];
 type DiffViewMode = "working-tree" | "head";
 
-type ReviewComment = { id: string; path: string; line: number; side: "additions" | "deletions"; body: string; createdAt: string };
-type ReviewAnnotation = { path: string; comments: ReviewComment[]; onStart: (line: number, side: "additions" | "deletions") => void };
+type ReviewComment = { id: string; path: string; line: number; side: "additions" | "deletions"; body: string; legacy?: boolean; createdAt: string };
+type ReviewAnnotation = {
+  path: string;
+  comments: ReviewComment[];
+  onStart: (line: number, side: "additions" | "deletions") => void;
+  onRepost: (comment: ReviewComment) => void;
+  onDelete: (comment: ReviewComment) => void;
+};
 
 type LucideIconProps = { size?: number };
 
@@ -246,11 +252,15 @@ function WorkspacePatchDiff({
   options,
   annotations,
   onStartComment,
+  onRepost,
+  onDelete,
 }: {
   patch: string;
   options: WorkspacePatchDiffOptions;
   annotations?: DiffLineAnnotation<ReviewAnnotation>[];
   onStartComment: (line: number, side: "additions" | "deletions") => void;
+  onRepost: (comment: ReviewComment) => void;
+  onDelete: (comment: ReviewComment) => void;
 }) {
   const fileDiff = useMemo(() => getSingularPatch(patch), [patch]);
   return (
@@ -267,8 +277,15 @@ function WorkspacePatchDiff({
       renderAnnotation={(annotation) => (
         <div className="border-t border-border bg-amber-50/70 px-3 py-2 text-xs dark:bg-amber-500/10">
           {annotation.metadata?.comments.map((comment) => (
-            <div key={comment.id} className="mb-1 last:mb-0 text-foreground">
-              <span className="mr-2 text-muted-foreground">Review</span>{comment.body}
+            <div key={comment.id} className="mb-2 last:mb-0 text-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{comment.legacy ? "Outdated review comment" : "Inline review"}</span>
+                <span className="flex gap-1">
+                  <button type="button" className="text-[11px] text-muted-foreground underline hover:text-foreground" onClick={() => onRepost(comment)}>Repost</button>
+                  <button type="button" className="text-[11px] text-destructive underline hover:text-destructive/80" onClick={() => onDelete(comment)}>Delete</button>
+                </span>
+              </div>
+              <div className="mt-1 whitespace-pre-wrap">{comment.body}</div>
             </div>
           ))}
         </div>
@@ -354,12 +371,16 @@ function FileDiffPanel({
   lineWrap,
   reviewComments,
   onStartComment,
+  onRepost,
+  onDelete,
 }: {
   file: DiffFileViewModel;
   mode: DiffRenderMode;
   lineWrap: boolean;
   reviewComments: ReviewComment[];
   onStartComment: (line: number, side: "additions" | "deletions") => void;
+  onRepost: (comment: ReviewComment) => void;
+  onDelete: (comment: ReviewComment) => void;
 }) {
   const warning = warningText(file);
   if (warning) {
@@ -391,14 +412,16 @@ function FileDiffPanel({
               <WorkspacePatchDiff
                 patch={patch.patch}
                 onStartComment={onStartComment}
+                onRepost={onRepost}
+                onDelete={onDelete}
                 annotations={reviewComments.length > 0 ? reviewComments.map((comment) => ({
                   side: comment.side,
                   lineNumber: comment.line,
-                  metadata: { path: file.path, comments: [comment], onStart: onStartComment },
+                  metadata: { path: file.path, comments: [comment], onStart: onStartComment, onRepost, onDelete },
                 })) : [{
                   side: "additions",
                   lineNumber: 0,
-                  metadata: { path: file.path, comments: [], onStart: onStartComment },
+                  metadata: { path: file.path, comments: [], onStart: onStartComment, onRepost, onDelete },
                 }]}
                 options={{
                   diffStyle: mode,
@@ -452,6 +475,7 @@ type ReviewContext = { issueId: string; actorUserId: string };
 export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { reviewContext?: ReviewContext }) {
   const toast = usePluginToast();
   const createLineComment = usePluginAction("create-line-comment");
+  const deleteLineComment = usePluginAction("delete-line-comment");
   const [mode, setMode] = useState<DiffRenderMode>("split");
   const [lineWrap, setLineWrap] = useState(false);
   const [view, setView] = useState<DiffViewMode>(() => readInitialView());
@@ -667,6 +691,27 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
       toast({ title: "Could not add review comment", body: caught instanceof Error ? caught.message : String(caught), tone: "error" });
     } finally {
       setReviewSaving(false);
+    }
+  };
+
+  const repostReviewComment = (comment: ReviewComment) => {
+    setReviewDraft({ path: comment.path, line: comment.line, side: comment.side });
+    setReviewBody(comment.body);
+  };
+
+  const removeReviewComment = async (comment: ReviewComment) => {
+    if (!reviewContext || !context.companyId) return;
+    try {
+      await deleteLineComment({
+        issueId: reviewContext.issueId,
+        companyId: context.companyId,
+        actorUserId: reviewContext.actorUserId,
+        commentId: comment.id,
+      });
+      await refreshReviewComments();
+      toast({ title: "Review comment deleted", body: `${comment.path}:${comment.line}` });
+    } catch (caught) {
+      toast({ title: "Could not delete review comment", body: caught instanceof Error ? caught.message : String(caught), tone: "error" });
     }
   };
 
@@ -905,6 +950,8 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
                       lineWrap={lineWrap}
                       reviewComments={reviewComments.filter((comment) => comment.path === file.path)}
                       onStartComment={(line, side) => setReviewDraft({ path: file.path, line, side })}
+                      onRepost={repostReviewComment}
+                      onDelete={(comment) => void removeReviewComment(comment)}
                     />
                   ) : (
                     <CollapsedFilePanel

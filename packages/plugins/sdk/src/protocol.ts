@@ -1537,6 +1537,15 @@ export interface WorkerToHostMethods {
     },
     result: IssueComment,
   ];
+  "issues.deleteComment": [
+    params: {
+      issueId: string;
+      commentId: string;
+      companyId: string;
+      actorUserId?: string;
+    },
+    result: IssueComment,
+  ];
   "issues.createInteraction": [
     params: {
       issueId: string;

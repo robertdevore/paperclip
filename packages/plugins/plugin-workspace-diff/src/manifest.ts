@@ -22,6 +22,7 @@ const manifest: PaperclipPluginManifestV1 = {
     "issue.comments.read",
     "issue.comments.create",
     "issue.comments.create_human_attributed",
+    "issue.comments.delete",
     "execution.workspaces.read",
     "project.workspaces.read",
   ],

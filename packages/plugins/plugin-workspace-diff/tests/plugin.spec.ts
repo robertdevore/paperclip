@@ -359,4 +359,48 @@ describe("workspace diff plugin", () => {
       workspaceId: "workspace-1",
     })).rejects.toThrow("workspaceId and companyId are required");
   });
+
+  it("can remove a stale review comment so it can be reposted", async () => {
+    const harness = createTestHarness({ manifest });
+    harness.seed({
+      issues: [{
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Review",
+        status: "todo",
+        priority: "medium",
+        assigneeAgentId: "agent-1",
+      } as any],
+      accessMembers: [{
+        id: "member-1",
+        companyId: "company-1",
+        principalType: "user",
+        principalId: "user-1",
+        status: "active",
+        membershipRole: "member",
+        grants: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }],
+    });
+    await plugin.definition.setup(harness.ctx);
+
+    const created = await harness.performAction<{ comment: { id: string } }>("create-line-comment", {
+      issueId: "issue-1",
+      companyId: "company-1",
+      actorUserId: "user-1",
+      path: "src/index.js",
+      line: 4,
+      side: "additions",
+      body: "Please add coverage.",
+    });
+    await harness.performAction("delete-line-comment", {
+      issueId: "issue-1",
+      companyId: "company-1",
+      actorUserId: "user-1",
+      commentId: created.comment.id,
+    });
+
+    await expect(harness.getData("review-comments", { issueId: "issue-1", companyId: "company-1" })).resolves.toEqual([]);
+  });
 });

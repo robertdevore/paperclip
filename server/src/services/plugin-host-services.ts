@@ -2226,6 +2226,32 @@ export function buildHostServices(
 
         return comment;
       },
+      async deleteComment(params) {
+        const companyId = ensureCompanyId(params.companyId);
+        await ensurePluginAvailableForCompany(companyId);
+        const issue = requireInCompany("Issue", await issues.getById(params.issueId), companyId);
+        if (!params.actorUserId) throw new Error("actorUserId is required to delete an issue comment");
+        await requireActiveHumanMember(companyId, params.actorUserId);
+        const comment = await issues.getComment(params.commentId);
+        if (!comment || comment.issueId !== issue.id) throw new Error("Comment not found");
+        if (comment.authorUserId !== params.actorUserId) throw new Error("Only the comment author can delete comments");
+        const deleted = await issues.tombstoneComment(params.commentId, {
+          actorType: "user",
+          agentId: null,
+          userId: params.actorUserId,
+          runId: null,
+        });
+        if (!deleted) throw new Error("Comment not found");
+        await logPluginActivity({
+          companyId,
+          action: "issue.comment.deleted",
+          entityType: "issue",
+          entityId: issue.id,
+          actor: { actorAgentId: null, actorUserId: params.actorUserId },
+          details: { identifier: issue.identifier, commentId: params.commentId, source: "plugin" },
+        });
+        return deleted as IssueComment;
+      },
       async createInteraction(params) {
         const companyId = ensureCompanyId(params.companyId);
         await ensurePluginAvailableForCompany(companyId);

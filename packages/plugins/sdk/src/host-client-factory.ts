@@ -238,6 +238,7 @@ export interface HostServices {
     getOrchestrationSummary(params: WorkerToHostMethods["issues.summaries.getOrchestration"][0]): Promise<WorkerToHostMethods["issues.summaries.getOrchestration"][1]>;
     listComments(params: WorkerToHostMethods["issues.listComments"][0]): Promise<WorkerToHostMethods["issues.listComments"][1]>;
     createComment(params: WorkerToHostMethods["issues.createComment"][0]): Promise<WorkerToHostMethods["issues.createComment"][1]>;
+    deleteComment(params: WorkerToHostMethods["issues.deleteComment"][0]): Promise<WorkerToHostMethods["issues.deleteComment"][1]>;
     createInteraction(params: WorkerToHostMethods["issues.createInteraction"][0]): Promise<WorkerToHostMethods["issues.createInteraction"][1]>;
     listInteractions(params: WorkerToHostMethods["issues.listInteractions"][0]): Promise<WorkerToHostMethods["issues.listInteractions"][1]>;
     respondInteraction(params: WorkerToHostMethods["issues.respondInteraction"][0]): Promise<WorkerToHostMethods["issues.respondInteraction"][1]>;
@@ -455,6 +456,7 @@ const METHOD_CAPABILITY_MAP: Record<WorkerToHostMethodName, PluginCapability | n
   "issues.summaries.getOrchestration": "issues.orchestration.read",
   "issues.listComments": "issue.comments.read",
   "issues.createComment": "issue.comments.create",
+  "issues.deleteComment": "issue.comments.delete",
   "issues.createInteraction": "issue.interactions.create",
   "issues.listInteractions": "issue.interactions.read",
   "issues.respondInteraction": "issue.interactions.respond",
@@ -910,6 +912,12 @@ export function createHostClientHandlers(
         );
       }
       return services.issues.createComment(params);
+    }),
+    "issues.deleteComment": gated("issues.deleteComment", async (params) => {
+      if (params.actorUserId && !capabilitySet.has("issue.comments.delete")) {
+        throw new CapabilityDeniedError(pluginId, "issues.deleteComment", "issue.comments.delete");
+      }
+      return services.issues.deleteComment(params);
     }),
     "issues.createInteraction": gated("issues.createInteraction", async (params) => {
       return services.issues.createInteraction(params);

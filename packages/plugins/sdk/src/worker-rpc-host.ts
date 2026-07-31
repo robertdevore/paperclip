@@ -909,6 +909,20 @@ export function startWorkerRpcHost(options: WorkerRpcHostOptions): WorkerRpcHost
           });
         },
 
+        async deleteComment(
+          issueId: string,
+          commentId: string,
+          companyId: string,
+          options?: { actorUserId?: string },
+        ) {
+          return callHost("issues.deleteComment", {
+            issueId,
+            commentId,
+            companyId,
+            actorUserId: options?.actorUserId,
+          });
+        },
+
         async createInteraction(issueId: string, interaction, companyId: string, options?: { authorAgentId?: string }) {
           return callHost("issues.createInteraction", {
             issueId,
