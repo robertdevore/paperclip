@@ -24,7 +24,7 @@ import { formatTimelineWorkspaceLabel, type IssueTimelineAssignee, type IssueTim
 import { timeAgo } from "../lib/timeAgo";
 import { cn, formatDateTime } from "../lib/utils";
 import { restoreSubmittedCommentDraft } from "../lib/comment-submit-draft";
-import { PluginSlotOutlet } from "@/plugins/slots";
+import { PluginLauncherOutlet } from "@/plugins/launchers";
 
 interface CommentWithRunMeta extends IssueComment {
   runId?: string | null;
@@ -384,8 +384,8 @@ function CommentCard({
             </Badge>
           ) : null}
           {companyId && !isPending && !isDeleted ? (
-            <PluginSlotOutlet
-              slotTypes={["commentContextMenuItem"]}
+            <PluginLauncherOutlet
+              placementZones={["commentContextMenuItem"]}
               entityType="comment"
               context={{
                 companyId,
@@ -396,7 +396,6 @@ function CommentCard({
               }}
               className="flex flex-wrap items-center gap-1.5"
               itemClassName="inline-flex"
-              missingBehavior="placeholder"
             />
           ) : null}
           {isPending ? (

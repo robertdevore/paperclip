@@ -50,6 +50,7 @@ export type PluginLauncherContext = {
   projectRef?: string | null;
   entityId?: string | null;
   entityType?: PluginUiSlotEntityType | null;
+  parentEntityId?: string | null;
 };
 
 export type ResolvedPluginLauncher = PluginLauncherDeclaration & {
@@ -143,6 +144,7 @@ function buildLauncherHostContext(
     projectId: context.projectId ?? (context.entityType === "project" ? context.entityId ?? null : null),
     entityId: context.entityId ?? null,
     entityType: context.entityType ?? null,
+    parentEntityId: context.parentEntityId ?? null,
     userId,
     renderEnvironment,
   };

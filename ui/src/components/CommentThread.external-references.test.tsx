@@ -25,6 +25,9 @@ vi.mock("./ApprovalCard", () => ({
 vi.mock("@/plugins/slots", () => ({
   PluginSlotOutlet: () => null,
 }));
+vi.mock("@/plugins/launchers", () => ({
+  PluginLauncherOutlet: () => null,
+}));
 
 vi.mock("../api/issues", () => ({
   issuesApi: { get: vi.fn() },

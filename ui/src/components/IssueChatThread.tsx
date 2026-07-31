@@ -129,6 +129,7 @@ import {
   type HandoffAgentMention,
 } from "../lib/interrupt-handoff";
 import { restoreSubmittedCommentDraft } from "../lib/comment-submit-draft";
+import { PluginLauncherOutlet } from "@/plugins/launchers";
 import {
   captureComposerViewportSnapshot,
   restoreComposerViewportSnapshot,
@@ -1418,6 +1419,9 @@ function IssueChatUserMessage({
     onDeleteComment,
     currentUserId,
     userProfileMap,
+    issueId,
+    companyId,
+    projectId,
   } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
@@ -1577,6 +1581,21 @@ function IssueChatUserMessage({
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
           ) : null}
+          {!deleted && companyId && issueId ? (
+            <PluginLauncherOutlet
+              placementZones={["commentContextMenuItem"]}
+              entityType="comment"
+              context={{
+                companyId,
+                projectId: projectId ?? null,
+                entityId: commentId,
+                entityType: "comment",
+                parentEntityId: issueId,
+              }}
+              className="flex flex-wrap items-center gap-1.5"
+              itemClassName="inline-flex"
+            />
+          ) : null}
           {canDeleteComment ? (
             <button
               type="button"
@@ -1653,6 +1672,9 @@ function IssueChatAssistantMessage({
     stoppingRunLabel = "Stopping...",
     stopRunVariant = "stop",
     runFinalizationActions = [],
+    issueId,
+    companyId,
+    projectId,
   } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
@@ -1762,6 +1784,21 @@ function IssueChatAssistantMessage({
           sharingPreference={feedbackDataSharingPreference}
           termsUrl={feedbackTermsUrl ?? null}
           onVote={handleVote}
+        />
+      ) : null}
+      {!deleted && companyId && issueId && commentId ? (
+        <PluginLauncherOutlet
+          placementZones={["commentContextMenuItem"]}
+          entityType="comment"
+          context={{
+            companyId,
+            projectId: projectId ?? null,
+            entityId: commentId,
+            entityType: "comment",
+            parentEntityId: issueId,
+          }}
+          className="flex flex-wrap items-center gap-1.5"
+          itemClassName="inline-flex"
         />
       ) : null}
       <Tooltip>
@@ -4887,6 +4924,9 @@ export function IssueChatThread({
     () => ({
       feedbackDataSharingPreference,
       feedbackTermsUrl,
+      issueId,
+      companyId,
+      projectId,
       agentMap,
       currentUserId,
       userLabelMap,
@@ -4915,6 +4955,9 @@ export function IssueChatThread({
     [
       feedbackDataSharingPreference,
       feedbackTermsUrl,
+      issueId,
+      companyId,
+      projectId,
       agentMap,
       currentUserId,
       userLabelMap,

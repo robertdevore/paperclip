@@ -69,6 +69,9 @@ vi.mock("./ApprovalCard", () => ({
 vi.mock("@/plugins/slots", () => ({
   PluginSlotOutlet: () => null,
 }));
+vi.mock("@/plugins/launchers", () => ({
+  PluginLauncherOutlet: () => null,
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

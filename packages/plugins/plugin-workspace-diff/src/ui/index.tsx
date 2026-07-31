@@ -929,7 +929,11 @@ export function WorkspaceDiffReviewModal({ context }: PluginCommentContextMenuIt
   const hostContext = useHostContext();
   const issueId = context.parentEntityId;
   const companyId = context.companyId ?? hostContext.companyId ?? "";
-  const { data, loading, error } = usePluginData<{ workspaceId: string | null; projectId: string | null }>("comment-review-context", {
+  const { data, loading, error } = usePluginData<{
+    workspaceId: string | null;
+    projectId: string | null;
+    entityType: "execution_workspace" | "project_workspace" | null;
+  }>("comment-review-context", {
     issueId,
     companyId,
   });
@@ -961,7 +965,7 @@ export function WorkspaceDiffReviewModal({ context }: PluginCommentContextMenuIt
             companyId,
             projectId: data.projectId ?? hostContext.projectId,
             entityId: data.workspaceId,
-            entityType: "execution_workspace",
+            entityType: data.entityType ?? "execution_workspace",
           }}
           reviewContext={{ issueId, actorUserId: hostContext.userId ?? "" }}
         />

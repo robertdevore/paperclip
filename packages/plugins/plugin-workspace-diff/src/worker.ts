@@ -118,8 +118,31 @@ const plugin = definePlugin({
       const companyId = readString(params.companyId);
       if (!issueId || !companyId) throw new Error("issueId and companyId are required");
       const issue = await ctx.issues.get(issueId, companyId);
-      if (!issue?.executionWorkspaceId) return { workspaceId: null, projectId: issue?.projectId ?? null };
-      return { workspaceId: issue.executionWorkspaceId, projectId: issue.projectId ?? null };
+      if (!issue) return { workspaceId: null, projectId: null, entityType: null };
+      if (issue.executionWorkspaceId) {
+        return {
+          workspaceId: issue.executionWorkspaceId,
+          projectId: issue.projectId ?? null,
+          entityType: "execution_workspace",
+        };
+      }
+
+      // Tasks created without an isolated execution workspace still have a
+      // reviewable project workspace. Prefer its primary workspace so the
+      // comment action remains useful for shared/local project runs.
+      if (issue.projectId) {
+        const workspaces = await ctx.projects.listWorkspaces(issue.projectId, companyId);
+        const workspace = workspaces.find((candidate) => candidate.isPrimary) ?? workspaces[0] ?? null;
+        if (workspace) {
+          return {
+            workspaceId: workspace.id,
+            projectId: issue.projectId,
+            entityType: "project_workspace",
+          };
+        }
+      }
+
+      return { workspaceId: null, projectId: issue.projectId ?? null, entityType: null };
     });
 
     ctx.data.register("review-comments", async (params: Record<string, unknown>) => {
