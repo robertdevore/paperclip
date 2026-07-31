@@ -75,11 +75,6 @@ function readInitialView(): DiffViewMode {
   return new URLSearchParams(window.location.search).get("diffView") === "head" ? "head" : "working-tree";
 }
 
-function hasInitialViewParam() {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).has("diffView");
-}
-
 function readInitialBaseRef() {
   if (typeof window === "undefined") return "";
   return new URLSearchParams(window.location.search).get("baseRef") ?? "";
@@ -453,7 +448,6 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
   const [view, setView] = useState<DiffViewMode>(() => readInitialView());
   const [baseRef, setBaseRef] = useState(() => readInitialBaseRef());
   const baseRefTouchedRef = useRef(Boolean(baseRef.trim()));
-  const viewTouchedRef = useRef(hasInitialViewParam());
   const [includeUntracked, setIncludeUntracked] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -601,10 +595,7 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
     if (!baseRef.trim() && !baseRefTouchedRef.current) {
       setBaseRef(defaultBaseRef);
     }
-    if (view === "working-tree" && !viewTouchedRef.current) {
-      setView("head");
-    }
-  }, [baseRef, data?.defaultBaseRef, view]);
+  }, [baseRef, data?.defaultBaseRef]);
 
   useEffect(() => {
     if (files.length === 0) {
@@ -738,7 +729,6 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
               type="button"
               className={buttonClass(effectiveView === "working-tree")}
               onClick={() => {
-                viewTouchedRef.current = true;
                 setView("working-tree");
               }}
             >
@@ -749,7 +739,6 @@ export function ChangesTab({ context, reviewContext }: PluginDetailTabProps & { 
               type="button"
               className={buttonClass(effectiveView === "head")}
               onClick={() => {
-                viewTouchedRef.current = true;
                 setView("head");
               }}
             >
