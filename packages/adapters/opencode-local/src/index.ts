@@ -61,6 +61,7 @@ export const models: Array<{ id: string; label: string }> = [
   { id: "openai/gpt-5.2", label: "openai/gpt-5.2" },
   { id: "openai/gpt-5.1-codex-max", label: "openai/gpt-5.1-codex-max" },
   { id: "openai/gpt-5.1-codex-mini", label: "openai/gpt-5.1-codex-mini" },
+  { id: "ollama-cloud/gpt-oss:120b", label: "Ollama Cloud / GPT-OSS 120B" },
 ];
 
 export const DEFAULT_OPENCODE_CHEAP_MODEL = "openai/gpt-5.1-codex-mini";
@@ -130,6 +131,10 @@ Operational fields:
 Notes:
 - OpenCode supports multiple providers and models. Use \
   \`opencode models\` to list available options in provider/model format.
+- Ollama Cloud is supported as \`ollama-cloud/<model>\`. Add \`OLLAMA_API_KEY\` to
+  the agent environment; Paperclip injects the OpenCode provider configuration
+  for \`https://ollama.com/v1\` automatically. You do not need to maintain an
+  project-level opencode.json file.
 - Paperclip requires an explicit \`model\` value for \`opencode_local\` agents.
 - Runs are executed with: opencode run --format json ...
 - Sessions are resumed with --session when stored session cwd matches current cwd.

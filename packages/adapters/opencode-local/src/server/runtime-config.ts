@@ -92,6 +92,20 @@ function parseConfiguredModelRef(raw: unknown): { provider: string; model: strin
   return { provider: trimmed.slice(0, slash), model: trimmed.slice(slash + 1) };
 }
 
+function buildOllamaCloudProvider(model: string): Record<string, unknown> {
+  return {
+    npm: "@ai-sdk/openai-compatible",
+    name: "Ollama Cloud",
+    options: {
+      baseURL: "https://ollama.com/v1",
+      apiKey: "{env:OLLAMA_API_KEY}",
+    },
+    models: {
+      [model]: { name: model },
+    },
+  };
+}
+
 async function readJsonObject(filepath: string): Promise<Record<string, unknown>> {
   try {
     const raw = await fs.readFile(filepath, "utf8");
@@ -170,9 +184,25 @@ export async function prepareOpenCodeRuntimeConfig(input: {
     notes,
   );
   const existingProvider = isPlainObject(existingConfig.provider) ? existingConfig.provider : {};
-  let nextProvider = gatewayProviders
-    ? { ...existingProvider, ...gatewayProviders }
-    : existingProvider;
+  const configuredModel = parseConfiguredModelRef(input.config.model);
+  const ollamaCloudProvider = configuredModel?.provider === "ollama-cloud"
+    ? {
+        "ollama-cloud": expandEnvPlaceholders(
+          buildOllamaCloudProvider(configuredModel.model),
+          resolveEnv,
+        ),
+      }
+    : null;
+  let nextProvider: Record<string, unknown> = {
+    ...(ollamaCloudProvider ?? {}),
+    ...existingProvider,
+    ...(gatewayProviders ?? {}),
+  };
+  if (ollamaCloudProvider) {
+    notes.push(
+      "Injected the Ollama Cloud provider for the configured ollama-cloud model using OLLAMA_API_KEY.",
+    );
+  }
   if (gatewayProviders) {
     notes.push(
       `Injected ${Object.keys(gatewayProviders).length} custom OpenCode provider(s) from PAPERCLIP_OPENCODE_PROVIDERS: ${Object.keys(gatewayProviders).join(", ")}.`,
@@ -187,7 +217,6 @@ export async function prepareOpenCodeRuntimeConfig(input: {
   // An empty entry deep-merges with catalog metadata, so this is a no-op for models
   // the catalog already knows, and we never clobber an explicit definition from the
   // user config or PAPERCLIP_OPENCODE_PROVIDERS.
-  const configuredModel = parseConfiguredModelRef(input.config.model);
   if (configuredModel) {
     const providerEntry = isPlainObject(nextProvider[configuredModel.provider])
       ? { ...(nextProvider[configuredModel.provider] as Record<string, unknown>) }

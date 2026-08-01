@@ -99,6 +99,33 @@ describe("prepareOpenCodeRuntimeConfig", () => {
     await prepared.cleanup();
   });
 
+  it("injects the Ollama Cloud provider for an ollama-cloud model", async () => {
+    const configHome = await makeConfigHome({ permission: { read: "allow" } });
+    const prepared = await prepareOpenCodeRuntimeConfig({
+      env: { XDG_CONFIG_HOME: configHome, OLLAMA_API_KEY: "ollama-test-key" },
+      config: { model: "ollama-cloud/gpt-oss:120b" },
+    });
+    cleanupPaths.add(prepared.env.XDG_CONFIG_HOME);
+
+    const runtimeConfig = JSON.parse(
+      await fs.readFile(path.join(prepared.env.XDG_CONFIG_HOME, "opencode", "opencode.json"), "utf8"),
+    ) as { provider: { "ollama-cloud": { options: { baseURL: string; apiKey: string }; models: Record<string, unknown> } } };
+
+    expect(runtimeConfig.provider["ollama-cloud"]).toMatchObject({
+      npm: "@ai-sdk/openai-compatible",
+      name: "Ollama Cloud",
+      options: {
+        baseURL: "https://ollama.com/v1",
+        apiKey: "ollama-test-key",
+      },
+      models: { "gpt-oss:120b": { name: "gpt-oss:120b" } },
+    });
+    expect(prepared.notes).toContain(
+      "Injected the Ollama Cloud provider for the configured ollama-cloud model using OLLAMA_API_KEY.",
+    );
+    await prepared.cleanup();
+  });
+
   it("reads PAPERCLIP_OPENCODE_PROVIDERS from process.env when absent from the run env", async () => {
     const configHome = await makeConfigHome({ permission: { read: "allow" } });
     const providers = { bifrost: { npm: "@ai-sdk/openai-compatible", models: { "example/model-a": {} } } };

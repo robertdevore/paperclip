@@ -124,6 +124,27 @@ export async function testEnvironment(
     });
   }
 
+  const configuredModel = asString(config.model, "").trim();
+  if (configuredModel.startsWith("ollama-cloud/")) {
+    const configuredOllamaKey = asString(env.OLLAMA_API_KEY, "").trim();
+    const hostOllamaKey = !targetIsRemote ? asString(process.env.OLLAMA_API_KEY, "").trim() : "";
+    if (!configuredOllamaKey && !hostOllamaKey) {
+      checks.push({
+        code: "opencode_ollama_cloud_api_key_missing",
+        level: "error",
+        message: "OLLAMA_API_KEY is required for Ollama Cloud models.",
+        hint: "Add OLLAMA_API_KEY as a secret-aware environment binding on this agent.",
+      });
+    } else {
+      checks.push({
+        code: "opencode_ollama_cloud_auth_configured",
+        level: "info",
+        message: "Ollama Cloud authentication is configured.",
+        hint: "Paperclip will inject the Ollama Cloud OpenCode provider for this model.",
+      });
+    }
+  }
+
   // Prevent OpenCode from writing an opencode.json into the working directory.
   env.OPENCODE_DISABLE_PROJECT_CONFIG = "true";
   const preparedRuntimeConfig = await prepareOpenCodeRuntimeConfig({ env, config });
@@ -214,8 +235,6 @@ export async function testEnvironment(
       checks.every((check) => check.code !== "opencode_cwd_invalid" && check.code !== "opencode_command_unresolvable");
 
     let modelValidationPassed = false;
-    const configuredModel = asString(config.model, "").trim();
-
     // Model discovery and validation use local child processes against
     // OpenCode's `models` subcommand and JSON config; these are not yet
     // wired through the execution target. When probing a remote env, skip
