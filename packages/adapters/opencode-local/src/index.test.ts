@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOpenCodeModelProfiles, DEFAULT_OPENCODE_CHEAP_MODEL } from "./index.js";
+import { buildOpenCodeModelProfiles, DEFAULT_OPENCODE_CHEAP_MODEL, models } from "./index.js";
 
 describe("buildOpenCodeModelProfiles cheap lane", () => {
   it("defaults to the upstream Codex mini model with variant low", () => {
@@ -24,5 +24,16 @@ describe("buildOpenCodeModelProfiles cheap lane", () => {
       PAPERCLIP_OPENCODE_SMALL_MODEL: "anthropic/gw/small",
     });
     expect(cheap.adapterConfig).toEqual({ model: "anthropic/gw/cheap" });
+  });
+});
+
+describe("Ollama Cloud model presets", () => {
+  it("includes current popular Cloud models while keeping provider/model IDs", () => {
+    expect(models).toEqual(expect.arrayContaining([
+      { id: "ollama-cloud/glm-5.2:cloud", label: "Ollama Cloud / GLM-5.2" },
+      { id: "ollama-cloud/kimi-k3:cloud", label: "Ollama Cloud / Kimi K3" },
+      { id: "ollama-cloud/qwen3.5:397b-cloud", label: "Ollama Cloud / Qwen 3.5 397B" },
+      { id: "ollama-cloud/minimax-m3:cloud", label: "Ollama Cloud / MiniMax M3" },
+    ]));
   });
 });

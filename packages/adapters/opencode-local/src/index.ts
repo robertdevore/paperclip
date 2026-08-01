@@ -53,6 +53,28 @@ export function isValidOpenCodeModelId(value: unknown): value is string {
   return Boolean(trimmed) && slashIndex > 0 && slashIndex !== trimmed.length - 1;
 }
 
+// Ollama's Cloud catalog changes over time. Keep a useful set of current
+// presets here for quick selection, while the model dropdown still supports
+// entering any other `ollama-cloud/<model>` value manually.
+const ollamaCloudModels: Array<{ id: string; label: string }> = [
+  { id: "ollama-cloud/gpt-oss:20b", label: "Ollama Cloud / GPT-OSS 20B" },
+  { id: "ollama-cloud/gpt-oss:120b", label: "Ollama Cloud / GPT-OSS 120B" },
+  { id: "ollama-cloud/glm-5.2:cloud", label: "Ollama Cloud / GLM-5.2" },
+  { id: "ollama-cloud/glm-5.1:cloud", label: "Ollama Cloud / GLM-5.1" },
+  { id: "ollama-cloud/kimi-k3:cloud", label: "Ollama Cloud / Kimi K3" },
+  { id: "ollama-cloud/kimi-k2.7-code:cloud", label: "Ollama Cloud / Kimi K2.7 Code" },
+  { id: "ollama-cloud/kimi-k2.6:cloud", label: "Ollama Cloud / Kimi K2.6" },
+  { id: "ollama-cloud/qwen3.5:397b-cloud", label: "Ollama Cloud / Qwen 3.5 397B" },
+  { id: "ollama-cloud/minimax-m2.7:cloud", label: "Ollama Cloud / MiniMax M2.7" },
+  { id: "ollama-cloud/minimax-m3:cloud", label: "Ollama Cloud / MiniMax M3" },
+  { id: "ollama-cloud/deepseek-v4-pro:cloud", label: "Ollama Cloud / DeepSeek V4 Pro" },
+  { id: "ollama-cloud/deepseek-v4-flash:cloud", label: "Ollama Cloud / DeepSeek V4 Flash" },
+  { id: "ollama-cloud/gemini-3-flash-preview:cloud", label: "Ollama Cloud / Gemini 3 Flash Preview" },
+  { id: "ollama-cloud/mistral-large-3:675b-cloud", label: "Ollama Cloud / Mistral Large 3" },
+  { id: "ollama-cloud/nemotron-3-super:120b-cloud", label: "Ollama Cloud / Nemotron 3 Super" },
+  { id: "ollama-cloud/nemotron-3-ultra:cloud", label: "Ollama Cloud / Nemotron 3 Ultra" },
+];
+
 export const models: Array<{ id: string; label: string }> = [
   { id: DEFAULT_OPENCODE_LOCAL_MODEL, label: DEFAULT_OPENCODE_LOCAL_MODEL },
   { id: "openai/gpt-5.5", label: "openai/gpt-5.5" },
@@ -61,7 +83,7 @@ export const models: Array<{ id: string; label: string }> = [
   { id: "openai/gpt-5.2", label: "openai/gpt-5.2" },
   { id: "openai/gpt-5.1-codex-max", label: "openai/gpt-5.1-codex-max" },
   { id: "openai/gpt-5.1-codex-mini", label: "openai/gpt-5.1-codex-mini" },
-  { id: "ollama-cloud/gpt-oss:120b", label: "Ollama Cloud / GPT-OSS 120B" },
+  ...ollamaCloudModels,
 ];
 
 export const DEFAULT_OPENCODE_CHEAP_MODEL = "openai/gpt-5.1-codex-mini";
@@ -134,7 +156,8 @@ Notes:
 - Ollama Cloud is supported as \`ollama-cloud/<model>\`. Add \`OLLAMA_API_KEY\` to
   the agent environment; Paperclip injects the OpenCode provider configuration
   for \`https://ollama.com/v1\` automatically. You do not need to maintain an
-  project-level opencode.json file.
+  project-level opencode.json file. The model picker includes popular Ollama
+  Cloud presets, and you can enter any newer model tag manually.
 - Paperclip requires an explicit \`model\` value for \`opencode_local\` agents.
 - Runs are executed with: opencode run --format json ...
 - Sessions are resumed with --session when stored session cwd matches current cwd.
