@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { goalsApi } from "../api/goals";
@@ -18,6 +18,7 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { cn, projectUrl } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PluginSlotMount, usePluginSlots } from "@/plugins/slots";
 import { Plus, SlidersHorizontal } from "lucide-react";
 import type { Goal, Project } from "@paperclipai/shared";
 
@@ -47,7 +48,7 @@ export function GoalPropertiesToggleButton({
 }
 
 export function GoalDetail() {
-  const { goalId } = useParams<{ goalId: string }>();
+  const { companyPrefix, goalId } = useParams<{ companyPrefix?: string; goalId: string }>();
   const { selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { openNewGoal } = useDialogActions();
   const { openPanel, closePanel, panelVisible, setPanelVisible } = usePanel();
@@ -64,6 +65,23 @@ export function GoalDetail() {
     enabled: !!goalId
   });
   const resolvedCompanyId = goal?.companyId ?? selectedCompanyId;
+  const [activeTab, setActiveTab] = useState("children");
+
+  const { slots: pluginDetailSlots } = usePluginSlots({
+    slotTypes: ["detailTab"],
+    entityType: "goal",
+    companyId: resolvedCompanyId,
+    enabled: !!resolvedCompanyId,
+  });
+  const pluginTabItems = useMemo(
+    () => pluginDetailSlots.map((slot) => ({
+      value: `plugin:${slot.pluginKey}:${slot.id}`,
+      label: slot.displayName,
+      slot,
+    })),
+    [pluginDetailSlots],
+  );
+  const activePluginTab = pluginTabItems.find((item) => item.value === activeTab) ?? null;
 
   const { data: allGoals } = useQuery({
     queryKey: queryKeys.goals.list(resolvedCompanyId!),
@@ -176,7 +194,7 @@ export function GoalDetail() {
         />
       </div>
 
-      <Tabs defaultValue="children">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="children">
             Sub-Goals ({childGoals.length})
@@ -184,6 +202,11 @@ export function GoalDetail() {
           <TabsTrigger value="projects">
             Projects ({linkedProjects.length})
           </TabsTrigger>
+          {pluginTabItems.map((item) => (
+            <TabsTrigger key={item.value} value={item.value}>
+              {item.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="children" className="mt-4 space-y-3">
@@ -221,6 +244,21 @@ export function GoalDetail() {
             </div>
           )}
         </TabsContent>
+
+        {activePluginTab && (
+          <TabsContent value={activePluginTab.value} className="mt-4">
+            <PluginSlotMount
+              slot={activePluginTab.slot}
+              context={{
+                companyId: resolvedCompanyId,
+                companyPrefix: companyPrefix ?? null,
+                entityId: goal.id,
+                entityType: "goal",
+              }}
+              missingBehavior="placeholder"
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
