@@ -500,6 +500,9 @@ async function loadPluginModule(contribution: PluginUiContribution): Promise<voi
       const declaredExports = new Set<string>();
       for (const slot of slots) {
         declaredExports.add(slot.exportName);
+        if (slot.badgeExportName) {
+          declaredExports.add(slot.badgeExportName);
+        }
       }
       for (const launcher of launchers) {
         if (launcher.exportName) {
@@ -763,6 +766,7 @@ type PluginSlotMountProps = {
   context: PluginSlotContext;
   className?: string;
   missingBehavior?: "hidden" | "placeholder";
+  exportName?: string;
 };
 
 /**
@@ -822,10 +826,12 @@ export function PluginSlotMount({
   context,
   className,
   missingBehavior = "hidden",
+  exportName,
 }: PluginSlotMountProps) {
   usePluginRegistrySubscription();
   const [, forceRerender] = useState(0);
-  const component = resolveRegisteredComponent(slot);
+  const resolvedExportName = exportName ?? slot.exportName;
+  const component = resolveRegisteredComponent({ ...slot, exportName: resolvedExportName });
 
   useEffect(() => {
     if (component) return;
@@ -842,7 +848,7 @@ export function PluginSlotMount({
     return () => {
       cancelled = true;
     };
-  }, [component, slot.pluginId]);
+  }, [component, slot.pluginId, resolvedExportName]);
 
   if (!component) {
     if (missingBehavior === "hidden") return null;

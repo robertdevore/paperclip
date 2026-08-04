@@ -370,6 +370,8 @@ export interface PaperclipPluginManifestV1 {
       displayName: string;
       /** Which export name in the UI bundle provides this component */
       exportName: string;
+      /** Optional compact component rendered inline in the tab label (for example, a dynamic count). */
+      badgeExportName?: string;
       /** For detailTab: which entity types this tab appears on */
       entityTypes?: Array<"project" | "issue" | "agent" | "goal" | "run">;
       /** For page and companySettingsPage: single route segment */

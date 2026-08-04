@@ -330,6 +330,7 @@ export const pluginUiSlotDeclarationSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().min(1),
   exportName: z.string().min(1),
+  badgeExportName: z.string().min(1).optional(),
   entityTypes: z.array(z.enum(PLUGIN_UI_SLOT_ENTITY_TYPES)).optional(),
   routePath: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, {
     message: "routePath must be a lowercase single-segment slug (letters, numbers, hyphens)",

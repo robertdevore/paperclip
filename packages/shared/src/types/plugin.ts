@@ -398,6 +398,11 @@ export interface PluginUiSlotDeclaration {
   /** Which export name in the UI bundle provides this component. */
   exportName: string;
   /**
+   * Optional export rendered inline in the tab label as a dynamic count or
+   * other compact badge. It receives the same detail-tab context.
+   */
+  badgeExportName?: string;
+  /**
    * Entity targets for context-sensitive slots.
    * Required for `detailTab`, `taskDetailView`, and `contextMenuItem`.
    */

@@ -199,7 +199,7 @@ ctx.jobs.register("heartbeat", async (job) => {
 
 ## UI slots and launchers
 
-Slots are mount points for plugin React components. Launchers are host-rendered entry points (buttons, menu items) that open plugin UI. Declare slots in `manifest.ui.slots` with `type`, `id`, `displayName`, `exportName`; for context-sensitive slots add `entityTypes`. Declare launchers in `manifest.ui.launchers` (or legacy `manifest.launchers`).
+Slots are mount points for plugin React components. Launchers are host-rendered entry points (buttons, menu items) that open plugin UI. Declare slots in `manifest.ui.slots` with `type`, `id`, `displayName`, `exportName`; for context-sensitive slots add `entityTypes`. A `detailTab` may also declare `badgeExportName` for a compact component rendered inline in the tab label, such as a dynamic count. Declare launchers in `manifest.ui.launchers` (or legacy `manifest.launchers`).
 
 ### Slot types / launcher placement zones
 

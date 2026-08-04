@@ -205,6 +205,18 @@ export function GoalDetail() {
           {pluginTabItems.map((item) => (
             <TabsTrigger key={item.value} value={item.value}>
               {item.label}
+              {item.slot.badgeExportName ? (
+                <PluginSlotMount
+                  slot={item.slot}
+                  exportName={item.slot.badgeExportName}
+                  context={{
+                    companyId: resolvedCompanyId,
+                    companyPrefix,
+                    entityId: goal.id,
+                    entityType: "goal",
+                  }}
+                />
+              ) : null}
             </TabsTrigger>
           ))}
         </TabsList>
