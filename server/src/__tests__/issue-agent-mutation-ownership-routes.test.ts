@@ -20,6 +20,7 @@ const mockIssueService = vi.hoisted(() => ({
   getAttachmentById: vi.fn(),
   getByIdentifier: vi.fn(),
   getById: vi.fn(),
+  getByIdForUpdate: vi.fn(),
   getComment: vi.fn(),
   getDependencyReadiness: vi.fn(),
   getRelationSummaries: vi.fn(),
@@ -433,6 +434,7 @@ describe("agent issue mutation checkout ownership", () => {
     mockIssueService.getAttachmentById.mockReset();
     mockIssueService.getByIdentifier.mockReset();
     mockIssueService.getById.mockReset();
+    mockIssueService.getByIdForUpdate.mockReset();
     mockIssueService.getComment.mockReset();
     mockIssueService.getDependencyReadiness.mockReset();
     mockIssueService.getDependencyReadiness.mockResolvedValue({
@@ -558,6 +560,7 @@ describe("agent issue mutation checkout ownership", () => {
     mockAgentService.resolveByReference.mockResolvedValue({ ambiguous: false, agent: null });
     mockCompanyService.getById.mockResolvedValue({ id: companyId, issuePrefix: "PAP" });
     mockIssueService.getById.mockResolvedValue(makeIssue());
+    mockIssueService.getByIdForUpdate.mockImplementation(async () => mockIssueService.getById());
     mockIssueService.getByIdentifier.mockResolvedValue(null);
     mockIssueService.getComment.mockResolvedValue({
       id: "comment-1",
@@ -783,7 +786,11 @@ describe("agent issue mutation checkout ownership", () => {
     const res = await sendRequest(await createApp(peerActor()));
 
     expect(res.status, JSON.stringify(res.body)).toBe(409);
-    expect(res.body.error).toBe("Issue is checked out by another agent");
+    // Plan §6: the run lock names the boundary and routes to the open channel.
+    expect(res.body.details.code).toBe("issue_write_assignee_run_lock");
+    expect(res.body.details.boundary).toBe("Run checkout lock");
+    expect(res.body.error).toContain("Who can act:");
+    expect(res.body.error).toContain("Comment instead");
     expect(mockIssueService.assertCheckoutOwner).not.toHaveBeenCalled();
     expect(mockIssueService.update).not.toHaveBeenCalled();
     expect(mockIssueService.addComment).not.toHaveBeenCalled();
@@ -972,6 +979,7 @@ describe("agent issue mutation checkout ownership", () => {
     expect(mockIssueService.update).toHaveBeenCalledWith(
       issueId,
       expect.objectContaining({ status: "done" }),
+      expect.anything(),
     );
   });
 
@@ -1940,7 +1948,11 @@ describe("agent issue mutation checkout ownership", () => {
       const res = await request(app).patch(`/api/issues/${issueId}`).send({ status: "in_review" });
 
       expect(res.status, JSON.stringify(res.body)).toBe(200);
-      expect(mockIssueService.update).toHaveBeenCalledWith(issueId, expect.objectContaining({ status: "in_review" }));
+      expect(mockIssueService.update).toHaveBeenCalledWith(
+        issueId,
+        expect.objectContaining({ status: "in_review" }),
+        expect.anything(),
+      );
     });
 
     it("rejects stale watchdog source mutations when revalidation finds a live path", async () => {

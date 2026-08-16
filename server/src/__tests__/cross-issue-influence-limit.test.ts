@@ -86,19 +86,27 @@ describe("cross-issue influence limit rollout", () => {
       count: 21,
       cap: 20,
     });
-    expect(crossIssueInfluenceLimitError(rejected)).toEqual({
-      error: "Cross-issue influence cap exceeded: this run is limited to 20 cross-issue comments or updates",
-      details: {
-        code: "cross_issue_influence_cap_exceeded",
-        cap: 20,
-        count: 21,
-        mode: "enforce",
-        enforceAt: CROSS_ISSUE_INFLUENCE_ENFORCE_AT.toISOString(),
-      },
+    const capError = crossIssueInfluenceLimitError(rejected, {
+      actorLabel: "Fable",
+      issueIdentifier: "TASK-482",
     });
+    expect(capError.details).toMatchObject({
+      code: "cross_issue_influence_cap_exceeded",
+      cap: 20,
+      count: 21,
+      mode: "enforce",
+      enforceAt: CROSS_ISSUE_INFLUENCE_ENFORCE_AT.toISOString(),
+    });
+    // Plan §6: the 429 names the boundary, who can act, and the way forward.
+    expect(capError.error).toContain("20");
+    expect(capError.error).toContain("Who can act:");
+    expect(capError.error).toContain("Try this:");
+    expect(capError.error).toContain("next heartbeat");
+    expect(capError.details.boundary).toContain("20");
+    expect(capError.details.whoCanAct).toContain("Fable");
   });
 
-  it("uses one durable counter for cross-issue comments and PATCH updates", async () => {
+  it("uses one durable counter for cross-issue comments, PATCH updates, and interaction resolutions", async () => {
     const fake = counterDb();
     const base = {
       companyId: "22222222-2222-4222-8222-222222222222",
@@ -112,9 +120,32 @@ describe("cross-issue influence limit rollout", () => {
       .resolves.toMatchObject({ count: 1, allowed: true });
     await expect(observeCrossIssueInfluence(fake.db as never, { ...base, kind: "update" }))
       .resolves.toMatchObject({ count: 2, allowed: true });
+    await expect(observeCrossIssueInfluence(fake.db as never, { ...base, kind: "interaction_resolution" }))
+      .resolves.toMatchObject({ count: 3, allowed: true });
 
-    expect(fake.observedCount).toBe(2);
-    expect(fake.inserted.map((row) => (row.details as { kind: string }).kind)).toEqual(["comment", "update"]);
+    expect(fake.observedCount).toBe(3);
+    expect(fake.inserted.map((row) => (row.details as { kind: string }).kind))
+      .toEqual(["comment", "update", "interaction_resolution"]);
+  });
+
+  it("counts an interaction resolution against a budget already spent on comments", async () => {
+    const fake = counterDb(CROSS_ISSUE_INFLUENCE_LIMIT);
+
+    await expect(observeCrossIssueInfluence(fake.db as never, {
+      companyId: "22222222-2222-4222-8222-222222222222",
+      runId: "11111111-1111-4111-8111-111111111111",
+      agentId: "33333333-3333-4333-8333-333333333333",
+      targetIssueId: "55555555-5555-4555-8555-555555555555",
+      kind: "interaction_resolution",
+      now: CROSS_ISSUE_INFLUENCE_ENFORCE_AT,
+    })).resolves.toMatchObject({
+      allowed: false,
+      mode: "enforce",
+      count: CROSS_ISSUE_INFLUENCE_LIMIT + 1,
+    });
+    expect(fake.inserted).toEqual([
+      expect.objectContaining({ action: "issue.cross_issue_influence_cap_rejected" }),
+    ]);
   });
 
   it("does not count same-issue writes", async () => {

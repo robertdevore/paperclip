@@ -31,15 +31,21 @@ const SPAN_ATTR = {
 const SPAN_STATUS_CODE_ERROR = 2;
 
 /**
- * Run one span-wrapped step through the plugin tracer. The pack step and the
- * transfer step share this helper. It seeds the provider family, runs the step,
- * sets the wall time, marks a thrown step failed, and always ends the span. The
- * tracer is a no-op until the host injects a live tracer, so the span never
- * changes the sync control flow.
+ * Run one span-wrapped step through the plugin tracer. The pack step, the
+ * transfer step, and each command round trip share this helper. It seeds the
+ * provider family, runs the step, marks a thrown step failed, and always ends
+ * the span. The host records the span with its true wall-clock width from the
+ * worker timestamps, so the span shows real time in the trace. The tracer is a
+ * no-op until the host injects a live tracer, so the span never changes the sync
+ * control flow.
+ *
+ * `wallMsAttr` is optional. The `pack` and `transfer` spans pass it to keep
+ * their existing `*.wall_ms` attribute. A per-round-trip span omits it, so it
+ * carries no `*.wall_ms` attribute and relies on the native span width.
  */
-async function withProviderSpan<T>(input: {
+export async function withProviderSpan<T>(input: {
   name: string;
-  wallMsAttr: string;
+  wallMsAttr?: string;
   attributes?: Record<string, string | number | boolean>;
   run: () => Promise<T>;
 }): Promise<T> {
@@ -53,7 +59,7 @@ async function withProviderSpan<T>(input: {
     span.setStatus({ code: SPAN_STATUS_CODE_ERROR });
     throw error;
   } finally {
-    span.setAttribute(input.wallMsAttr, Date.now() - startedAtMs);
+    if (input.wallMsAttr) span.setAttribute(input.wallMsAttr, Date.now() - startedAtMs);
     span.end();
   }
 }
@@ -174,6 +180,44 @@ function posixPathEscapes(relative: string): boolean {
 }
 
 /**
+ * Parse one `tar -tvf` verbose listing line into its leading type flag and the
+ * trailing name-and-link-target field. The listing dialect depends on which tar
+ * the host ships: GNU/busybox emit
+ * `<perms> <owner>/<group> <size> <date> <time> <rest>`, while bsdtar
+ * (libarchive — the system tar on macOS) emits the ls-style
+ * `<perms> <links> <user> <group> <size> <Mon> <day> <time|year> <rest>`.
+ * The second field disambiguates: GNU always slash-joins owner/group, bsdtar
+ * puts a pure-digit link count there, so no line satisfies both shapes — the
+ * slash requirement is load-bearing, since a bsdtar line with numeric uid/gid
+ * would otherwise match the GNU shape shifted, hiding traversal in `<rest>`.
+ * Entries whose size column is not a plain byte count (e.g. a device node's
+ * `major,minor`) match neither shape. Returns null when nothing matches so
+ * callers can fail closed.
+ */
+export function parseTarVerboseListingLine(line: string): { typeFlag: string; rest: string } | null {
+  const gnu = line.match(/^(\S+)\s+\S+\/\S+\s+\d+\s+\S+\s+\S+\s+(.*)$/);
+  if (gnu) return { typeFlag: gnu[1][0], rest: gnu[2] };
+  const bsd = line.match(/^(\S+)\s+\d+\s+\S+\s+\S+\s+\d+\s+\S+\s+\d{1,2}\s+(?:\d{4}|\d{1,2}:\d{2}(?::\d{2})?)\s+(.*)$/);
+  if (bsd) return { typeFlag: bsd[1][0], rest: bsd[2] };
+  return null;
+}
+
+/**
+ * Split a verbose-listing link field (`<name><delimiter><target>`) exactly
+ * once. The sandbox controls both halves, so a field with zero or multiple
+ * delimiter occurrences is unresolvable: a link name that itself contains the
+ * delimiter shifts the split point, and taking the first (or last) occurrence
+ * would let a crafted name or target hide an escaping link target from the
+ * confinement check. Returns null so callers fail closed.
+ */
+export function splitLinkEntryOnce(field: string, delimiter: string): { name: string; target: string } | null {
+  const first = field.indexOf(delimiter);
+  if (first === -1) return null;
+  if (field.indexOf(delimiter, first + delimiter.length) !== -1) return null;
+  return { name: field.slice(0, first), target: field.slice(first + delimiter.length) };
+}
+
+/**
  * Reject a sandbox-authored tarball before extraction if any member would land
  * outside the extraction dir. The archive is produced by the (untrusted) sandbox,
  * so `tar -xf` on the host must never be handed an archive whose entries carry
@@ -191,24 +235,23 @@ async function assertTarballEntriesConfined(archivePath: string): Promise<void> 
   });
   const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
   for (const line of lines) {
-    // GNU tar -tvf: "<perms> <owner>/<group> <size> <date> <time> <name>[ -> target]".
-    const match = line.match(/^(\S+)\s+\S+\s+\d+\s+\S+\s+\S+\s+(.*)$/);
-    if (!match) {
+    const parsed = parseTarVerboseListingLine(line);
+    if (!parsed) {
       throw new Error(`Daytona syncOut refusing tarball with an unparseable entry listing: ${line}`);
     }
-    const typeFlag = match[1][0];
-    let name = match[2];
+    const typeFlag = parsed.typeFlag;
+    let name = parsed.rest;
     let linkTarget: string | null = null;
     if (typeFlag === "l") {
-      const idx = name.indexOf(" -> ");
-      if (idx === -1) throw new Error(`Daytona syncOut refusing unparseable symlink entry: ${line}`);
-      linkTarget = name.slice(idx + " -> ".length);
-      name = name.slice(0, idx);
+      const split = splitLinkEntryOnce(name, " -> ");
+      if (!split) throw new Error(`Daytona syncOut refusing unparseable or ambiguous symlink entry: ${line}`);
+      name = split.name;
+      linkTarget = split.target;
     } else if (typeFlag === "h") {
-      const idx = name.indexOf(" link to ");
-      if (idx === -1) throw new Error(`Daytona syncOut refusing unparseable hardlink entry: ${line}`);
-      linkTarget = name.slice(idx + " link to ".length);
-      name = name.slice(0, idx);
+      const split = splitLinkEntryOnce(name, " link to ");
+      if (!split) throw new Error(`Daytona syncOut refusing unparseable or ambiguous hardlink entry: ${line}`);
+      name = split.name;
+      linkTarget = split.target;
     }
     const cleanName = name.replace(/\/+$/, "");
     if (cleanName.length > 0 && posixPathEscapes(cleanName)) {
@@ -454,19 +497,29 @@ async function syncInFileMappings(input: {
 
   // Ensure every target directory exists before the bulk upload writes its temp.
   const mkdirCommand = [...parentDirs].map((dir) => `mkdir -p ${shellQuote(dir)}`).join(" && ");
-  await assertSandboxCommandOk(sandbox, mkdirCommand, timeoutSeconds, "syncIn mkdir");
+  // `ensureDirectory` span: `mkdir -p` — ensure a directory exists before a write.
+  await withProviderSpan({
+    name: "ensureDirectory",
+    run: () => assertSandboxCommandOk(sandbox, mkdirCommand, timeoutSeconds, "syncIn mkdir"),
+  });
   guardRoundTrips += 1;
 
   // Defense-in-depth beyond the lexical `assertConfinedSandboxPath`: a sandbox
   // can replace a target parent with a symlink to `/etc` so the string check
   // passes but the upload + `mv -f` resolve through it. Canonicalize every parent
   // dir (now materialized) and fail closed if any escapes, BEFORE any bytes land.
-  await assertSandboxPathsConfined({
-    sandbox,
-    remoteDir,
-    paths: [...parentDirs],
-    timeoutSeconds,
-    label: "inbound symlink-escape guard",
+  // `checkSymlinkEscape` span: re-check a path resolves inside the workspace root
+  // before use.
+  await withProviderSpan({
+    name: "checkSymlinkEscape",
+    run: () =>
+      assertSandboxPathsConfined({
+        sandbox,
+        remoteDir,
+        paths: [...parentDirs],
+        timeoutSeconds,
+        label: "inbound symlink-escape guard",
+      }),
   });
   guardRoundTrips += 1;
 
@@ -475,6 +528,7 @@ async function syncInFileMappings(input: {
   // retry never accumulates stale `.paperclip-upload-*` scratch.
   try {
     // One batched bulk upload (single /files/bulk-upload) for all file mappings.
+    // `transfer` span: the real byte upload — `sandbox.fs.uploadFiles`.
     await withProviderSpan({
       name: "transfer",
       wallMsAttr: SPAN_ATTR.transferWallMs,
@@ -521,12 +575,18 @@ async function syncInFileMappings(input: {
         `exec 8>&-;`,
       );
     }
-    await assertSandboxCommandOk(
-      sandbox,
-      `sh -c ${shellQuote(renameScript.join("\n"))}`,
-      timeoutSeconds,
-      "syncIn rename",
-    );
+    // `promote` span: atomically move the staged temp onto its target via a
+    // pinned dir handle.
+    await withProviderSpan({
+      name: "promote",
+      run: () =>
+        assertSandboxCommandOk(
+          sandbox,
+          `sh -c ${shellQuote(renameScript.join("\n"))}`,
+          timeoutSeconds,
+          "syncIn rename",
+        ),
+    });
   } catch (error) {
     await removeSandboxScratch(sandbox, renames.map((rename) => rename.temp), timeoutSeconds);
     throw error;
@@ -547,6 +607,7 @@ async function syncInDirectoryMapping(input: {
     const archivePath = path.join(tmp, "sync-in.tar");
     // The pack step is host-local: it builds the tarball and makes no sandbox
     // round trip. The `pack` span records its wall time.
+    // `pack` span: build a tarball on the host — no sandbox round trip.
     await withProviderSpan({
       name: "pack",
       wallMsAttr: SPAN_ATTR.packWallMs,
@@ -568,21 +629,33 @@ async function syncInDirectoryMapping(input: {
     // components, then confirm it (and any existing parent) canonicalizes inside
     // the remote dir — `tar -C` would otherwise follow a sandbox-planted symlink
     // and extract our archive outside the workspace root.
-    await assertSandboxCommandOk(
-      sandbox,
-      `mkdir -p ${shellQuote(mapping.targetPath)}`,
-      timeoutSeconds,
-      "syncIn mkdir",
-    );
-    guardRoundTrips += 1;
-    await assertSandboxPathsConfined({
-      sandbox,
-      remoteDir,
-      paths: [mapping.targetPath],
-      timeoutSeconds,
-      label: "inbound symlink-escape guard",
+    // `ensureDirectory` span: `mkdir -p` — ensure a directory exists before a write.
+    await withProviderSpan({
+      name: "ensureDirectory",
+      run: () =>
+        assertSandboxCommandOk(
+          sandbox,
+          `mkdir -p ${shellQuote(mapping.targetPath)}`,
+          timeoutSeconds,
+          "syncIn mkdir",
+        ),
     });
     guardRoundTrips += 1;
+    // `checkSymlinkEscape` span: re-check a path resolves inside the workspace
+    // root before use.
+    await withProviderSpan({
+      name: "checkSymlinkEscape",
+      run: () =>
+        assertSandboxPathsConfined({
+          sandbox,
+          remoteDir,
+          paths: [mapping.targetPath],
+          timeoutSeconds,
+          label: "inbound symlink-escape guard",
+        }),
+    });
+    guardRoundTrips += 1;
+    // `transfer` span: the real byte upload — `sandbox.fs.uploadFiles`.
     await withProviderSpan({
       name: "transfer",
       wallMsAttr: SPAN_ATTR.transferWallMs,
@@ -616,12 +689,18 @@ async function syncInDirectoryMapping(input: {
       `exec 9>&-;`,
       `rm -f ${shellQuote(remoteTar)};`,
     ].join("\n");
-    await assertSandboxCommandOk(
-      sandbox,
-      `sh -c ${shellQuote(extractScript)}`,
-      timeoutSeconds,
-      "syncIn extract",
-    );
+    // `extractTarball` span: one round trip — re-check the path, `tar -xf`, and
+    // remove the scratch tarball.
+    await withProviderSpan({
+      name: "extractTarball",
+      run: () =>
+        assertSandboxCommandOk(
+          sandbox,
+          `sh -c ${shellQuote(extractScript)}`,
+          timeoutSeconds,
+          "syncIn extract",
+        ),
+    });
     const filesTransferred = await countHostFiles(mapping.sourcePath, mapping.exclude);
     return { filesTransferred, bytesTransferred };
   });
@@ -658,12 +737,18 @@ async function runPostUploadCommands(input: {
     let cwd = remoteDir;
     if (command.cwd != null) {
       assertConfinedSandboxPath(remoteDir, command.cwd, "post-upload command cwd");
-      await assertSandboxPathsConfined({
-        sandbox,
-        remoteDir,
-        paths: [command.cwd],
-        timeoutSeconds,
-        label: "post-upload command cwd symlink-escape guard",
+      // `checkSymlinkEscape` span: re-check a path resolves inside the workspace
+      // root before use.
+      await withProviderSpan({
+        name: "checkSymlinkEscape",
+        run: () =>
+          assertSandboxPathsConfined({
+            sandbox,
+            remoteDir,
+            paths: [command.cwd as string],
+            timeoutSeconds,
+            label: "post-upload command cwd symlink-escape guard",
+          }),
       });
       cwd = command.cwd;
     }
@@ -671,12 +756,12 @@ async function runPostUploadCommands(input: {
     // C4: first non-zero exit or timeout throws and aborts the remaining commands.
     const commandTimeoutSeconds =
       command.timeoutMs != null ? toTimeoutSeconds(command.timeoutMs) : timeoutSeconds;
-    const result = await sandbox.process.executeCommand(
-      command.command,
-      cwd,
-      undefined,
-      commandTimeoutSeconds,
-    );
+    // `postUploadCommand` span: run one caller-supplied post-upload command.
+    const result = await withProviderSpan({
+      name: "postUploadCommand",
+      run: () =>
+        sandbox.process.executeCommand(command.command, cwd, undefined, commandTimeoutSeconds),
+    });
     if ((result.exitCode ?? 1) !== 0) {
       const detail = (result.result ?? result.artifacts?.stdout ?? "").toString().trim();
       throw new Error(

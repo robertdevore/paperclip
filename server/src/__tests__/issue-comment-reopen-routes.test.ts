@@ -5,6 +5,7 @@ import { HttpError } from "../errors.js";
 
 const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
+  getByIdForUpdate: vi.fn(),
   assertCheckoutOwner: vi.fn(),
   update: vi.fn(),
   addComment: vi.fn(),
@@ -13,6 +14,7 @@ const mockIssueService = vi.hoisted(() => ({
   findMentionedAgents: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
+  getRelationSummaries: vi.fn(),
 }));
 
 const mockAccessService = vi.hoisted(() => ({
@@ -74,6 +76,7 @@ const mockIssueThreadInteractionService = vi.hoisted(() => ({
   expirePendingInteractionsForTerminalIssue: vi.fn(async () => []),
   expireRequestConfirmationsSupersededByComment: vi.fn(async () => []),
   expireStaleRequestConfirmationsForIssueDocument: vi.fn(async () => []),
+  listForIssue: vi.fn(async () => []),
 }));
 const mockIssueRecoveryActionService = vi.hoisted(() => ({
   getActiveForIssue: vi.fn(async () => null),
@@ -263,6 +266,7 @@ describe.sequential("issue comment reopen routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIssueService.getById.mockReset();
+    mockIssueService.getByIdForUpdate.mockReset();
     mockIssueService.assertCheckoutOwner.mockReset();
     mockIssueService.update.mockReset();
     mockIssueService.addComment.mockReset();
@@ -288,6 +292,7 @@ describe.sequential("issue comment reopen routes", () => {
     mockInstanceSettingsService.get.mockReset();
     mockInstanceSettingsService.listCompanyIds.mockReset();
     mockRoutineService.syncRunStatusForIssue.mockReset();
+    mockIssueThreadInteractionService.listForIssue.mockReset();
     mockIssueRecoveryActionService.getActiveForIssue.mockReset();
     mockIssueTreeControlService.getActivePauseHoldGate.mockReset();
     mockExternalObjectService.syncCommentSafely.mockReset();
@@ -313,6 +318,7 @@ describe.sequential("issue comment reopen routes", () => {
     mockDbSelectFrom.mockImplementation(() => ({ where: mockDbSelectWhere }));
     mockDbSelect.mockImplementation(() => ({ from: mockDbSelectFrom }));
     mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx));
+    mockIssueService.getByIdForUpdate.mockImplementation(async () => mockIssueService.getById());
     mockHeartbeatService.wakeup.mockResolvedValue(undefined);
     mockHeartbeatService.reportRunActivity.mockResolvedValue(undefined);
     mockHeartbeatService.getRun.mockResolvedValue(null);
@@ -352,6 +358,7 @@ describe.sequential("issue comment reopen routes", () => {
     });
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
     mockRoutineService.syncRunStatusForIssue.mockResolvedValue(undefined);
+    mockIssueThreadInteractionService.listForIssue.mockResolvedValue([]);
     mockIssueRecoveryActionService.getActiveForIssue.mockResolvedValue(null);
     mockIssueTreeControlService.getActivePauseHoldGate.mockResolvedValue(null);
     mockIssueService.addComment.mockResolvedValue({
@@ -682,7 +689,11 @@ describe.sequential("issue comment reopen routes", () => {
         .send({ body: "Please continue this closed issue.", ...intent });
 
       expect(res.status, JSON.stringify(res.body)).toBe(403);
-      expect(res.body).toEqual({ error: "Issue is outside this actor's authorization boundary" });
+      expect(res.body.details.code).toBe("issue_write_not_visible");
+      // Plan §6: name the boundary, who can act, and the sanctioned path.
+      expect(res.body.error).toContain("Issue visibility");
+      expect(res.body.error).toContain("Who can act:");
+      expect(res.body.details.sanctionedPath).toContain("child issue");
       expect(mockAccessService.decide).toHaveBeenCalledWith(expect.objectContaining({ action: "issue:comment" }));
       expect(mockAccessService.decide).toHaveBeenCalledWith(expect.objectContaining({ action: "issue:mutate" }));
       expect(mockIssueService.update).not.toHaveBeenCalled();
@@ -1231,6 +1242,62 @@ describe.sequential("issue comment reopen routes", () => {
         }),
       }),
     ));
+  });
+
+  it("does not implicitly reopen a blocked issue via PATCH when the same request wires blockers", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue("blocked"));
+    mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      blockerIssueIds: [],
+      unresolvedBlockerIssueIds: [],
+      unresolvedBlockerCount: 0,
+      allBlockersDone: true,
+      isDependencyReady: true,
+    });
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeIssue("blocked"),
+      ...patch,
+    }));
+
+    const res = await request(await installActor(createApp()))
+      .patch("/api/issues/11111111-1111-4111-8111-111111111111")
+      .send({
+        blockedByIssueIds: ["33333333-3333-4333-8333-333333333333"],
+        comment: "wired the dependency this issue is waiting on",
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalled();
+    const patch = mockIssueService.update.mock.calls[0][1] as Record<string, unknown>;
+    expect(patch.status).toBeUndefined();
+    expect(patch.blockedByIssueIds).toEqual(["33333333-3333-4333-8333-333333333333"]);
+  });
+
+  it("still implicitly reopens a blocked issue via PATCH when the same request clears blockers", async () => {
+    mockIssueService.getById.mockResolvedValue(makeIssue("blocked"));
+    mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
+    mockIssueService.getDependencyReadiness.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      blockerIssueIds: [],
+      unresolvedBlockerIssueIds: [],
+      unresolvedBlockerCount: 0,
+      allBlockersDone: true,
+      isDependencyReady: true,
+    });
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...makeIssue("blocked"),
+      ...patch,
+    }));
+
+    const res = await request(await installActor(createApp()))
+      .patch("/api/issues/11111111-1111-4111-8111-111111111111")
+      .send({ blockedByIssueIds: [], comment: "nothing left to wait on, please continue" });
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.update).toHaveBeenCalled();
+    const patch = mockIssueService.update.mock.calls[0][1] as Record<string, unknown>;
+    expect(patch.status).toBe("todo");
   });
 
   it("does not implicitly reopen closed issues via POST comments when no agent is assigned", async () => {

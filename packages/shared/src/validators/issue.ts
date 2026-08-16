@@ -20,12 +20,16 @@ import {
   ISSUE_RECOVERY_ACTION_OUTCOMES,
   ISSUE_RECOVERY_ACTION_OWNER_TYPES,
   ISSUE_RECOVERY_ACTION_STATUSES,
+  ISSUE_REVIEW_POLICIES,
   ISSUE_WORK_MODES,
   clampIssueRequestDepth,
   ISSUE_STATUSES,
   ISSUE_THREAD_INTERACTION_CONTINUATION_POLICIES,
+  ISSUE_THREAD_INTERACTION_CANONICAL_RESOLVER_POLICIES,
+  ISSUE_THREAD_INTERACTION_EFFECTIVE_RESOLVER_POLICY_SOURCES,
   ISSUE_THREAD_INTERACTION_KINDS,
   ISSUE_THREAD_INTERACTION_RESOLVER_POLICIES,
+  ISSUE_THREAD_INTERACTION_RESOLVER_POLICY_PROVENANCES,
   ISSUE_THREAD_INTERACTION_STATUSES,
   ISSUE_WATCHDOG_DISCOVERY_KINDS,
   MODEL_PROFILE_KEYS,
@@ -446,6 +450,7 @@ const createIssueBaseSchema = z.object({
   workMode: z.enum(ISSUE_WORK_MODES).optional().default("standard"),
   harnessKind: z.enum(ISSUE_HARNESS_KINDS).optional().nullable(),
   priority: z.enum(ISSUE_PRIORITIES).optional().default("medium"),
+  reviewPolicy: z.enum(ISSUE_REVIEW_POLICIES).optional().nullable(),
   assigneeAgentId: z.string().uuid().optional().nullable(),
   assigneeUserId: z.string().optional().nullable(),
   requestDepth: issueRequestDepthInputSchema.optional().default(0),
@@ -489,13 +494,24 @@ const createIssueDuplicateGuardSchema = {
     .default(false),
 };
 
+// Narrow intent flag set by the onboarding wizard on the single first task. The
+// server owns the resulting origin kind (clients cannot set arbitrary origin
+// kinds) and uses it to seed the agent greeting instead of an LLM welcome step.
+const onboardingFirstTaskMarkerSchema = {
+  onboardingFirstTask: z.boolean().optional(),
+};
+
 export const createIssueInputSchema = createIssueBaseSchema.extend({
   status: createIssueBaseSchema.shape.status.optional(),
   ...createIssueDuplicateGuardSchema,
+  ...onboardingFirstTaskMarkerSchema,
 });
 
 export const createIssueSchema = withCreateIssueStatusDefault(
-  createIssueBaseSchema.extend(createIssueDuplicateGuardSchema),
+  createIssueBaseSchema.extend({
+    ...createIssueDuplicateGuardSchema,
+    ...onboardingFirstTaskMarkerSchema,
+  }),
 ).superRefine(requireBlockedStatusForUnblockDescriptor);
 
 export type CreateIssue = z.infer<typeof createIssueSchema>;
@@ -543,6 +559,7 @@ export const updateIssueSchema = createIssueBaseSchema.omit({
   assigneeAgentId: z.string().trim().min(1).optional().nullable(),
   comment: multilineTextSchema.pipe(z.string().min(1)).optional(),
   onBehalfOfUserId: z.string().trim().min(1).optional().nullable(),
+  reviewInteractionId: z.string().uuid().optional(),
   reviewRequest: issueReviewRequestSchema.optional().nullable(),
   reopen: z.boolean().optional(),
   resume: z.boolean().optional(),
@@ -628,6 +645,7 @@ const issueCommentMetadataAgentLinkRowSchema = issueCommentMetadataBaseRowSchema
 const issueCommentMetadataRunLinkRowSchema = issueCommentMetadataBaseRowSchema.extend({
   type: z.literal("run_link"),
   runId: z.string().uuid(),
+  agentId: z.string().uuid().nullable().optional(),
   title: z.string().trim().min(1).max(160).nullable().optional(),
 }).strict();
 
@@ -677,7 +695,18 @@ export type AddIssueComment = z.infer<typeof addIssueCommentSchema>;
 
 export const issueThreadInteractionStatusSchema = z.enum(ISSUE_THREAD_INTERACTION_STATUSES);
 export const issueThreadInteractionKindSchema = z.enum(ISSUE_THREAD_INTERACTION_KINDS);
-export const issueThreadInteractionResolverPolicySchema = z.enum(ISSUE_THREAD_INTERACTION_RESOLVER_POLICIES);
+export const issueThreadInteractionCanonicalResolverPolicySchema = z
+  .enum(ISSUE_THREAD_INTERACTION_CANONICAL_RESOLVER_POLICIES)
+  .describe("Canonical resolver audience: anyone, not_creator, or human_only.");
+export const issueThreadInteractionResolverPolicySchema = z
+  .enum(ISSUE_THREAD_INTERACTION_RESOLVER_POLICIES)
+  .describe(
+    "Resolver audience. Use anyone, not_creator, or human_only; board_or_agents and board_only are deprecated compatibility aliases.",
+  );
+export const issueThreadInteractionResolverPolicyProvenanceSchema = z
+  .enum(ISSUE_THREAD_INTERACTION_RESOLVER_POLICY_PROVENANCES);
+export const issueThreadInteractionEffectiveResolverPolicySourceSchema = z
+  .enum(ISSUE_THREAD_INTERACTION_EFFECTIVE_RESOLVER_POLICY_SOURCES);
 export const issueThreadInteractionContinuationPolicySchema = z.enum(
   ISSUE_THREAD_INTERACTION_CONTINUATION_POLICIES,
 );
@@ -755,6 +784,12 @@ export const askUserQuestionsQuestionOptionSchema = z.object({
   id: z.string().trim().min(1).max(120),
   label: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).nullable().optional(),
+  freeText: z
+    .boolean()
+    .optional()
+    .describe(
+      "When true, selecting this option reveals an inline text field; the typed value is returned as the question's otherText. Use this for a real \"I'll describe it\" choice instead of authoring a dead option that does nothing. At most one free-text option per question.",
+    ),
 });
 
 export const askUserQuestionsQuestionSchema = z.object({
@@ -785,6 +820,7 @@ export const askUserQuestionsPayloadSchema = z.object({
     seenQuestionIds.add(question.id);
 
     const seenOptionIds = new Set<string>();
+    let freeTextOptionCount = 0;
     for (const [optionIndex, option] of question.options.entries()) {
       if (seenOptionIds.has(option.id)) {
         ctx.addIssue({
@@ -794,6 +830,16 @@ export const askUserQuestionsPayloadSchema = z.object({
         });
       }
       seenOptionIds.add(option.id);
+      if (option.freeText) {
+        freeTextOptionCount += 1;
+        if (freeTextOptionCount > 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "A question may declare at most one free-text option",
+            path: ["questions", questionIndex, "options", optionIndex, "freeText"],
+          });
+        }
+      }
     }
   }
 });
@@ -811,8 +857,11 @@ export const askUserQuestionsResultSchema = z.object({
   answers: z.array(askUserQuestionsAnswerSchema).max(20),
   cancelled: z.literal(true).optional(),
   cancellationReason: z.string().trim().max(4000).nullable().optional(),
-  expirationReason: z.literal("superseded_by_comment").optional(),
+  expirationReason: z.enum(["superseded_by_comment", "superseded_by_newer_interaction"]).optional(),
   commentId: z.string().uuid().nullable().optional(),
+  // Set alongside expirationReason "superseded_by_newer_interaction": the id of
+  // the newer sibling ask_user_questions that replaced this one (PAP-437).
+  supersededByInteractionId: z.string().uuid().nullable().optional(),
   summaryMarkdown: z.string().max(20000).nullable().optional(),
 });
 
@@ -1130,9 +1179,26 @@ export const requestItemVerdictsResultItemSchema = z.object({
   id: z.string().trim().min(1).max(120),
   verdict: requestItemVerdictValueSchema,
   reason: z.string().trim().max(4000).nullable().optional(),
-  resolvedByUserId: z.string().trim().min(1).max(255),
+  resolvedByUserId: z.string().trim().min(1).max(255).nullable().optional(),
+  resolvedByAgentId: z.string().uuid().nullable().optional(),
+  resolvedByRunId: z.string().uuid().nullable().optional(),
   resolvedAt: z.union([z.string().datetime(), z.date()]),
   commentId: z.string().uuid().nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (!value.resolvedByUserId && !value.resolvedByAgentId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "a user or agent resolver is required",
+      path: ["resolvedByUserId"],
+    });
+  }
+  if (value.resolvedByAgentId && !value.resolvedByRunId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "resolvedByRunId is required for an agent resolver",
+      path: ["resolvedByRunId"],
+    });
+  }
 });
 
 export const requestItemVerdictsResultSchema = z.object({
