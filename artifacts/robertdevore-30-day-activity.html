@@ -25,7 +25,7 @@
     .day { display:grid; grid-template-columns:76px 1fr 72px; gap:10px; align-items:center; }
     .date { color:var(--muted); font-size:12px; }
     .track { height:10px; background:#25252b; border-radius:99px; overflow:hidden; }
-    .fill { height:100%; background:linear-gradient(90deg,#729cd0,var(--blue)); border-radius:inherit; }
+    .fill { display:block; height:100%; background:linear-gradient(90deg,#729cd0,var(--blue)); border-radius:inherit; }
     .tokens { text-align:right; color:var(--muted); font-size:12px; }
     .split { display:grid; gap:18px; }
     .metric { display:flex; justify-content:space-between; padding:13px 0; border-bottom:1px solid var(--line); }
@@ -70,7 +70,7 @@
     </div>
 
     <footer>
-      Sources: <a href="https://github.com/robertdevore?tab=repositories">public GitHub repositories</a> · local Codex session records · <code>2026/Kujolang/kujo-repos/watchdog/data/watchdog.db</code>. The prior screenshot remains a visual reference only; this version uses local telemetry where available.
+      Sources: <a href="https://github.com/robertdevore?tab=repositories">public GitHub repositories</a> · local Codex session records · <code>2026/Kujolang/kujo-repos/watchdog/data/watchdog.db</code>. Claude’s installed app was inspected, but its local cache/logs did not contain an authoritative account token ledger; the Claude figure above is Watchdog-routed usage only.
     </footer>
   </main>
   <script>
