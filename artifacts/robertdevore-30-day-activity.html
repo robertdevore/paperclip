@@ -42,44 +42,44 @@
   <main>
     <div class="eyebrow">Personal activity brief · 30 days</div>
     <h1>Building loudly.<br><span class="gold">Measuring honestly.</span></h1>
-    <p class="lede">A measured view of local Codex sessions, Watchdog telemetry for AI Chat/Ollama, and public GitHub repository changes for <a href="https://github.com/robertdevore">@robertdevore</a>.</p>
+    <p class="lede">A compact view of the token activity visible in the supplied chart and public GitHub repository changes for <a href="https://github.com/robertdevore">@robertdevore</a>.</p>
 
     <section class="grid" aria-label="Summary metrics">
-      <div class="card"><div class="label">Local Codex</div><div class="value">7.74B</div><div class="sub">326 recorded sessions</div></div>
-      <div class="card"><div class="label">Watchdog total</div><div class="value">345.5M</div><div class="sub">2,542 recorded requests</div></div>
-      <div class="card"><div class="label">Ollama via Watchdog</div><div class="value">297.2M</div><div class="sub">890 requests · $293.31 est.</div></div>
-      <div class="card"><div class="label">GitHub net change</div><div class="value green">+124,446</div><div class="sub">+132,421 / −7,975 lines</div></div>
+      <div class="card"><div class="label">Chart token volume</div><div class="value">≈11.5M</div><div class="sub">30 daily labels summed</div></div>
+      <div class="card"><div class="label">Chart net balance</div><div class="value green">+2.0M</div><div class="sub">+6.7M in · −4.7M out</div></div>
+      <div class="card"><div class="label">GitHub additions</div><div class="value">132,421</div><div class="sub">public owned repos</div></div>
+      <div class="card"><div class="label">GitHub deletions</div><div class="value">7,975</div><div class="sub">public owned repos</div></div>
     </section>
 
     <div class="two">
       <section class="card">
-        <div class="section-title"><h2>Verified token telemetry</h2><span class="period">Jul 21 – Aug 20, 2026 UTC</span></div>
-        <div id="streams"></div>
-        <p class="note">Codex values come from the local session records’ final cumulative usage per session. Watchdog values come from its SQLite request records; Ollama is filtered by provider.</p>
+        <div class="section-title"><h2>Token activity by day</h2><span class="period">Jul 21 – Aug 19, 2026</span></div>
+        <div class="bars" id="bars"></div>
+        <p class="note">Values are transcribed from the attached screenshot’s right-hand daily totals; “M” labels are treated as millions and “K” as thousands.</p>
       </section>
       <section class="card">
         <div class="section-title"><h2>Code movement</h2><span class="period">same 30-day window</span></div>
         <div class="split">
-          <div class="metric"><span>Claude via Watchdog</span><strong>1.24M</strong></div>
-          <div class="metric"><span>Codex via Watchdog</span><strong>9.49M</strong></div>
-          <div class="metric"><span>AI Chat total</span><strong>342.2M</strong></div>
-          <div class="metric"><span>GitHub repositories changed</span><strong>13</strong></div>
+          <div class="metric"><span>Lines added</span><strong class="green">+132,421</strong></div>
+          <div class="metric"><span>Lines removed</span><strong class="red">−7,975</strong></div>
+          <div class="metric"><span>Net change</span><strong class="gold">+124,446</strong></div>
+          <div class="metric"><span>Repositories with changes</span><strong>13</strong></div>
         </div>
-        <p class="note">Watchdog’s Claude and Codex figures represent routed requests recorded locally, not direct provider-account billing. GitHub uses <code>git numstat</code> across public repositories visible on the profile.</p>
+        <p class="note">Computed with Git history and <code>git numstat</code> across the public repositories visible on the profile at collection time. This is repository-owner activity, not a private GitHub contribution export.</p>
       </section>
     </div>
 
     <footer>
-      Sources: <a href="https://github.com/robertdevore?tab=repositories">public GitHub repositories</a> · local Codex session records · <code>2026/Kujolang/kujo-repos/watchdog/data/watchdog.db</code>. The prior screenshot remains a visual reference only; this version uses local telemetry where available.
+      Sources: <a href="https://github.com/robertdevore?tab=repositories">public GitHub repositories</a> · attached token chart · collection window interpreted as 2026-07-21 through 2026-08-20 UTC. Chat history itself was not directly accessible, so the token section is chart-derived rather than a complete account export.
     </footer>
   </main>
   <script>
-    const streams = [
-      {name:'Local Codex', total:7736103710, rows:[['Jul 21',273225542],['Jul 22',184825079],['Jul 23',138581393],['Jul 24',135378863],['Jul 25',599640619],['Jul 26',82517276],['Jul 27',110869260],['Jul 28',26985184],['Jul 29',898268],['Jul 31',335641743],['Aug 1',44822717],['Aug 2',48287600],['Aug 3',6381890],['Aug 4',71892571],['Aug 5',1361082],['Aug 6',17821250],['Aug 7',539404625],['Aug 8',1221050556],['Aug 9',522052412],['Aug 10',179457278],['Aug 11',964681683],['Aug 12',1177951114],['Aug 13',247557301],['Aug 14',598025274],['Aug 15',49972607],['Aug 16',34179029],['Aug 17',17014888],['Aug 18',99840746],['Aug 20',5785860]]},
-      {name:'Ollama via Watchdog', total:297249016, rows:[['Jul 21',2449616],['Jul 22',15889138],['Jul 23',43524368],['Jul 24',23315992],['Jul 25',151364],['Jul 26',12780939],['Jul 27',22185211],['Jul 28',51386],['Jul 29',1091881],['Jul 30',51386],['Jul 31',674910],['Aug 1',80340758],['Aug 2',1444979],['Aug 3',51386],['Aug 4',51386],['Aug 5',51386],['Aug 6',51386],['Aug 7',51386],['Aug 8',74621],['Aug 9',51386],['Aug 10',15491],['Aug 15',2649925],['Aug 17',7951113],['Aug 18',81870694],['Aug 19',422729],['Aug 20',4199]]}
+    const data = [
+      ['Jul 21','233K'],['Jul 22','393K'],['Jul 23','245K'],['Jul 24','1.4M'],['Jul 25','407K'],['Jul 26','1M'],['Jul 27','1.2M'],['Jul 28','473K'],['Jul 29','452K'],['Jul 30','179K'],['Jul 31','178K'],['Aug 1','41K'],['Aug 2','103K'],['Aug 3','156K'],['Aug 4','40K'],['Aug 5','147K'],['Aug 6','116K'],['Aug 7','144K'],['Aug 8','12K'],['Aug 9','133K'],['Aug 10','84K'],['Aug 11','243K'],['Aug 12','242K'],['Aug 13','1.2M'],['Aug 14','711K'],['Aug 15','778K'],['Aug 16','982K'],['Aug 17','121K'],['Aug 18','50K'],['Aug 19','55K']
     ];
-    const fmt = n => n >= 1e9 ? `${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `${(n/1e6).toFixed(1)}M` : `${Math.round(n/1000)}K`;
-    document.querySelector('#streams').innerHTML = streams.map(stream => { const max = Math.max(...stream.rows.map(x => x[1])); return `<div class="stream-block"><div class="section-title"><h2>${stream.name}</h2><span class="period">${fmt(stream.total)} total</span></div><div class="bars">${stream.rows.map(([date,value]) => `<div class="day"><span class="date">${date}</span><span class="track"><span class="fill" style="width:${Math.max(2,value/max*100)}%"></span></span><span class="tokens">${fmt(value)}</span></div>`).join('')}</div></div>`; }).join('');
+    const n = s => parseFloat(s) * (s.endsWith('M') ? 1000 : 1);
+    const max = Math.max(...data.map(x => n(x[1])));
+    document.querySelector('#bars').innerHTML = data.map(([date, value]) => `<div class="day"><span class="date">${date}</span><span class="track"><span class="fill" style="width:${Math.max(2,n(value)/max*100)}%"></span></span><span class="tokens">${value}</span></div>`).join('');
   </script>
 </body>
 </html>
