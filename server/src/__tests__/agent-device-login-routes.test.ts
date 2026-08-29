@@ -1,14 +1,14 @@
 import express from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AdapterAuthSessionConflictError } from "../services/codex-device-login-service.js";
+import { AdapterAuthSessionConflictError } from "../services/device-login-service.js";
 import type {
   AdapterAuthSessionRow,
   AdapterAuthSessionStore,
   AcquireLoginLeaseInput,
   LoginSessionLease,
   LoginSessionRuntime,
-} from "../services/codex-device-login-service.js";
+} from "../services/device-login-service.js";
 
 // The company-scoped adapter device-login routes. These tests drive the real
 // login-session service through the route layer. A fake in-memory store models
@@ -30,6 +30,18 @@ const SANDBOX_ENV_2 = "22222222-2222-4222-8222-222222222222";
 const DEVICE_LOGIN_URL = "https://auth.openai.com/codex/device";
 const PROMPT_CODE = "ABCD-EFGHI";
 const PROMPT_OUTPUT = `Open ${DEVICE_LOGIN_URL} in your browser.\nEnter the one-time code below:\n${PROMPT_CODE}\n`;
+
+// The Grok device-login URL and the one-time code the fake sandbox streams for
+// a `grok_local` session. The Grok parser requires the `user_code` query to
+// equal the code that stands alone on its own line after the preamble.
+const GROK_CODE = "WXYZ-ABCD";
+const GROK_DEVICE_LOGIN_URL = `https://accounts.x.ai/oauth2/device?user_code=${GROK_CODE}`;
+const GROK_PROMPT_OUTPUT = [
+  "To sign in, open this URL in your browser:",
+  `  ${GROK_DEVICE_LOGIN_URL}`,
+  "Confirm this code in your browser:",
+  `  ${GROK_CODE}`,
+].join("\n");
 // A credential byte string the fake sandbox returns. The routes and the activity
 // must never log it.
 const CREDENTIAL_BYTES = '{"tokens":{"access":"SECRET-ACCESS-TOKEN"}}';
@@ -61,6 +73,9 @@ const mockSecretService = vi.hoisted(() => ({
 const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
   releaseLease: vi.fn(),
+  // The login guard reads the companies that own the environment. An empty
+  // list marks an instance-global environment, so the guard stays open.
+  listBoundCompanyIds: vi.fn(async () => [] as string[]),
 }));
 
 const mockEnvironmentRuntime = vi.hoisted(() => ({
@@ -70,6 +85,10 @@ const mockEnvironmentRuntime = vi.hoisted(() => ({
 }));
 
 const mockResolveEnvironmentExecutionTarget = vi.hoisted(() => vi.fn());
+// The provider capability resolver the device-login gate reads. A supported
+// provider advertises the login pseudo-terminal capability. A test overrides this
+// to prove an unsupported provider fails closed before any session or lease.
+const mockResolvePluginSandboxProviderDriverByKey = vi.hoisted(() => vi.fn());
 const mockInstanceSettingsService = vi.hoisted(() => ({
   getGeneral: vi.fn(async () => ({ censorUsernameInLogs: false })),
 }));
@@ -133,6 +152,16 @@ vi.mock("../services/environment-runtime.js", () => ({
   environmentRuntimeService: () => mockEnvironmentRuntime,
 }));
 
+vi.mock("../services/plugin-environment-driver.js", async () => {
+  const actual = await vi.importActual<typeof import("../services/plugin-environment-driver.js")>(
+    "../services/plugin-environment-driver.js",
+  );
+  return {
+    ...actual,
+    resolvePluginSandboxProviderDriverByKey: mockResolvePluginSandboxProviderDriverByKey,
+  };
+});
+
 vi.mock("../services/environment-execution-target.js", () => ({
   resolveEnvironmentExecutionTarget: mockResolveEnvironmentExecutionTarget,
 }));
@@ -159,8 +188,8 @@ vi.mock("@paperclipai/adapter-codex-local/server", async (importOriginal) => {
 
 // Keep the real login-session service and the real conflict error. Replace only
 // the store factory and the production runtime factory with the harness fakes.
-vi.mock("../services/codex-device-login-service.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../services/codex-device-login-service.js")>();
+vi.mock("../services/device-login-service.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/device-login-service.js")>();
   return {
     ...actual,
     createDbAdapterAuthSessionStore: () => harness.store,
@@ -174,19 +203,22 @@ vi.mock("../services/codex-device-login-service.js", async (importOriginal) => {
 function createMemoryStore(): AdapterAuthSessionStore & { rows: Map<string, AdapterAuthSessionRow> } {
   const rows = new Map<string, AdapterAuthSessionRow>();
   const activeSlots = new Set<string>();
-  const slotKey = (companyId: string, adapterType: string) => `${companyId}|${adapterType}`;
+  // The active slot is scoped to the company, the owner, and the adapter.
+  const slotKey = (companyId: string, startedByUserId: string, adapterType: string) =>
+    `${companyId}|${startedByUserId}|${adapterType}`;
   const isActive = (status: AdapterAuthSessionRow["status"]) =>
     status === "starting" || status === "waiting_for_user" || status === "promoting";
   return {
     rows,
     async insert(input) {
-      const key = slotKey(input.companyId, input.adapterType);
+      const key = slotKey(input.companyId, input.startedByUserId, input.adapterType);
       if (activeSlots.has(key)) {
         throw new AdapterAuthSessionConflictError();
       }
       activeSlots.add(key);
       rows.set(input.id, {
         id: input.id,
+        publicSessionId: input.publicSessionId,
         companyId: input.companyId,
         environmentId: input.environmentId,
         adapterType: input.adapterType,
@@ -210,7 +242,8 @@ function createMemoryStore(): AdapterAuthSessionStore & { rows: Map<string, Adap
       if (input.failureReason !== undefined) row.failureReason = input.failureReason;
       if (input.finishedAt !== undefined) row.finishedAt = input.finishedAt;
       if (input.promotionExpiresAt !== undefined) row.promotionExpiresAt = input.promotionExpiresAt;
-      if (!isActive(input.status)) activeSlots.delete(slotKey(row.companyId, row.adapterType));
+      if (!isActive(input.status))
+        activeSlots.delete(slotKey(row.companyId, row.startedByUserId, row.adapterType));
     },
     async compareAndSetStatus(input) {
       const row = rows.get(input.sessionId);
@@ -219,14 +252,25 @@ function createMemoryStore(): AdapterAuthSessionStore & { rows: Map<string, Adap
       if (input.failureReason !== undefined) row.failureReason = input.failureReason;
       if (input.finishedAt !== undefined) row.finishedAt = input.finishedAt;
       if (input.promotionExpiresAt !== undefined) row.promotionExpiresAt = input.promotionExpiresAt;
-      if (!isActive(input.status)) activeSlots.delete(slotKey(row.companyId, row.adapterType));
+      if (!isActive(input.status))
+        activeSlots.delete(slotKey(row.companyId, row.startedByUserId, row.adapterType));
       return true;
     },
     async get(sessionId) {
       const row = rows.get(sessionId);
       return row ? { ...row } : null;
     },
-    async withCompanyAdapterPromotionLock(_companyId, _adapterType, fn) {
+    async getByPublicId(publicSessionId, companyId) {
+      // Scope the read to the company and the public session id, so a
+      // foreign-company lookup reads nothing and the internal id never matches.
+      for (const row of rows.values()) {
+        if (row.publicSessionId === publicSessionId && row.companyId === companyId) {
+          return { ...row };
+        }
+      }
+      return null;
+    },
+    async withCompanyAdapterPromotionLock(_companyId, _startedByUserId, _adapterType, fn) {
       // The route test runs on a single event loop, so it needs no real lock. The
       // pass-through keeps the promotion contract satisfied.
       return fn();
@@ -237,7 +281,7 @@ function createMemoryStore(): AdapterAuthSessionStore & { rows: Map<string, Adap
 // A fake runtime. It streams the prompt, then waits on the harness gate, so the
 // login run stays active while the test reads and cancels it. The gate resolves
 // in `afterEach`, so no run and no timer survives the test.
-function createFakeRuntime(): LoginSessionRuntime {
+function createFakeRuntime(promptOutput: string = PROMPT_OUTPUT): LoginSessionRuntime {
   return {
     async acquireLoginLease(input) {
       harness.acquisitions.push(input);
@@ -245,8 +289,8 @@ function createFakeRuntime(): LoginSessionRuntime {
         providerLeaseId: `provider-lease-${input.sessionId}`,
         authPath: `/tmp/paperclip-adapter-login/${input.sessionId}/auth.json`,
         driver: {
-          async execStreaming(_command, onStdout) {
-            onStdout(PROMPT_OUTPUT);
+          async start(_command, onData) {
+            onData(promptOutput);
             await harness.gate;
             return { exitCode: 0 };
           },
@@ -322,6 +366,14 @@ describe("adapter device-login routes", () => {
       config: { provider: "daytona" },
       envVars: {},
     }));
+    // The default provider advertises the login pseudo-terminal capability. A
+    // test overrides this to prove an unsupported provider fails closed.
+    mockResolvePluginSandboxProviderDriverByKey.mockImplementation(
+      async ({ driverKey }: { driverKey: string }) =>
+        driverKey === "daytona"
+          ? { plugin: { id: "plugin-daytona" }, driver: { supportsLoginPty: true } }
+          : null,
+    );
   });
 
   afterEach(() => {
@@ -367,18 +419,138 @@ describe("adapter device-login routes", () => {
       adapterType: "codex_local",
       startedByUserId: OWNER_A,
     });
-    // The row persists the immutable owner from the actor.
+    // The row persists the immutable owner from the actor. The response carries
+    // the public session id, so read the row by the public id, not the internal id.
     const store = harness.store as ReturnType<typeof createMemoryStore>;
-    const row = store.rows.get(res.body.sessionId);
+    const row = await store.getByPublicId(res.body.sessionId, COMPANY_1);
     expect(row?.startedByUserId).toBe(OWNER_A);
+    // The public session id is never the internal row id.
+    expect(row?.id).not.toBe(res.body.sessionId);
+    // No row is keyed by the public session id in the internal-id map.
+    expect(store.rows.get(res.body.sessionId)).toBeUndefined();
   });
 
-  it("rejects a non-codex adapter", async () => {
+  it("rejects an adapter whose login capability drives a different panel mode", async () => {
+    // The Claude adapter declares a submitted-browser-code login, not a
+    // displayed-code device login. The guard reads the capability panel mode, so
+    // it rejects the adapter with a fixed 400 before any lease.
     const app = await createApp();
 
     const res = await request(app)
       .post(loginPath(COMPANY_1, "claude_local"))
       .send({ environmentId: SANDBOX_ENV_1 });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(harness.acquisitions).toHaveLength(0);
+  });
+
+  it("rejects a displayed-code adapter that has no mapped login command key", async () => {
+    // A third adapter declares a displayed-code login capability, but its adapter
+    // type maps to no login command key. The login opener resolves the command
+    // key from the closed command map, so this adapter would fail at command
+    // resolution after the route creates session state. The guard keeps admission
+    // consistent with the command map, so it rejects the adapter with a fixed 400
+    // before any lease. The test overrides an existing adapter type so the strict
+    // request schema accepts it.
+    const app = await createApp();
+    const { registerServerAdapter, unregisterServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "gemini_local",
+      execute: async () => {
+        throw new Error("not used");
+      },
+      testEnvironment: async () => {
+        throw new Error("not used");
+      },
+      loginCapability: {
+        panelMode: "displayed_code",
+        timeoutPolicy: "caller_bounded",
+        getCommand: () => "vendor login",
+        parsePrompt: () => null,
+      },
+    });
+    try {
+      const res = await request(app)
+        .post(loginPath(COMPANY_1, "gemini_local"))
+        .send({ environmentId: SANDBOX_ENV_1 });
+
+      expect(res.status, JSON.stringify(res.body)).toBe(400);
+      expect(harness.acquisitions).toHaveLength(0);
+    } finally {
+      unregisterServerAdapter("gemini_local");
+    }
+  });
+
+  it("starts a device login for a non-Codex adapter that maps to a login command key", async () => {
+    // A non-Codex adapter type that maps to a login command key declares a
+    // displayed-code login capability. The guard reads the registry capability
+    // and the command map, not the adapter name, so the adapter passes the guard
+    // and starts a session. This proves no adapter-name branch remains in the
+    // guard path. The test overrides the mapped `claude_local` type with a
+    // displayed-code capability so the guard admits it.
+    const app = await createApp();
+    const { registerServerAdapter, unregisterServerAdapter } = await import("../adapters/index.js");
+    registerServerAdapter({
+      type: "claude_local",
+      execute: async () => {
+        throw new Error("not used");
+      },
+      testEnvironment: async () => {
+        throw new Error("not used");
+      },
+      loginCapability: {
+        panelMode: "displayed_code",
+        timeoutPolicy: "caller_bounded",
+        getCommand: () => "vendor login",
+        parsePrompt: () => null,
+      },
+    });
+    try {
+      const res = await request(app)
+        .post(loginPath(COMPANY_1, "claude_local"))
+        .send({ environmentId: SANDBOX_ENV_1 });
+
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(res.body).toMatchObject({ environmentId: SANDBOX_ENV_1, status: "starting" });
+      expect(harness.acquisitions).toHaveLength(1);
+      expect(harness.acquisitions[0]).toMatchObject({ adapterType: "claude_local" });
+    } finally {
+      unregisterServerAdapter("claude_local");
+    }
+  });
+
+  it("rejects a provider that does not advertise the login pseudo-terminal capability", async () => {
+    // The device login runs on a real pseudo-terminal, so it needs a provider
+    // that advertises the login pseudo-terminal capability. The provider resolves
+    // to a driver with no capability, so the route gate fails closed before any
+    // session row or lease.
+    mockResolvePluginSandboxProviderDriverByKey.mockImplementation(
+      async ({ driverKey }: { driverKey: string }) =>
+        driverKey === "daytona"
+          ? { plugin: { id: "plugin-daytona" }, driver: { supportsLoginPty: false } }
+          : null,
+    );
+    const app = await createApp();
+
+    const res = await request(app)
+      .post(loginPath(COMPANY_1))
+      .send({ environmentId: SANDBOX_ENV_1 });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body).toMatchObject({ code: "codex_device_login_provider_unsupported" });
+    // The gate ran before any session row or lease, so the runtime acquired none.
+    expect(harness.acquisitions).toHaveLength(0);
+  });
+
+  it("rejects a malformed start body with the strict schema before any side effect", async () => {
+    const app = await createApp();
+
+    // The strict start schema rejects an unknown field. The old lax parse
+    // accepted an extra field and started a session; the shared spine now fails
+    // the request with a fixed 400 before it acquires a lease.
+    const res = await request(app)
+      .post(loginPath(COMPANY_1))
+      .send({ environmentId: SANDBOX_ENV_1, unexpectedField: "x" });
 
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(harness.acquisitions).toHaveLength(0);
@@ -458,6 +630,40 @@ describe("adapter device-login routes", () => {
     expect(second.body.status).toBe(first.body.status);
   });
 
+  it("starts a Grok session, delivers the Grok prompt once, and a codex_local read finds no row", async () => {
+    // The Grok parser reaches this session because the profile map resolves it
+    // by adapter type. The fake sandbox streams a Grok-shaped prompt, not a
+    // Codex-shaped one, so a surfaced prompt proves the Grok parser ran.
+    harness.runtime = createFakeRuntime(GROK_PROMPT_OUTPUT);
+    const app = await createApp();
+
+    const start = await request(app)
+      .post(loginPath(COMPANY_1, "grok_local"))
+      .send({ environmentId: SANDBOX_ENV_1 });
+    expect(start.status, JSON.stringify(start.body)).toBe(201);
+    const sessionId = start.body.sessionId as string;
+
+    const first = await request(app).get(`${loginPath(COMPANY_1, "grok_local")}/${sessionId}`);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body.prompt).toEqual({ url: GROK_DEVICE_LOGIN_URL, code: GROK_CODE });
+
+    // The row belongs to `grok_local`, not `codex_local`. Reading it through the
+    // `codex_local` path finds no row for the owner.
+    const wrongAdapterRead = await request(app).get(`${loginPath(COMPANY_1, "codex_local")}/${sessionId}`);
+    expect(wrongAdapterRead.status, JSON.stringify(wrongAdapterRead.body)).toBe(404);
+
+    const cancel = await request(app).post(`${loginPath(COMPANY_1, "grok_local")}/${sessionId}/cancel`);
+    expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
+    // The cancel resolves the public terminal status at once. Internally the row
+    // holds `cleanup_pending`, which encodes the cancelled terminal until the
+    // reaper finalizes it — the same durable-cancel contract every adapter uses.
+    expect(cancel.body.status).toBe("cancelled");
+
+    const store = harness.store as ReturnType<typeof createMemoryStore>;
+    const row = await store.getByPublicId(sessionId, COMPANY_1);
+    expect(row?.status).toBe("cleanup_pending");
+  });
+
   it("returns 404 for a wrong-user status, prompt, and cancel", async () => {
     const app = await createApp();
 
@@ -519,7 +725,7 @@ describe("adapter device-login routes", () => {
     expect(restart.body.sessionId).not.toBe(sessionId);
   });
 
-  it("returns 409 for a second active start by a different owner", async () => {
+  it("lets a second owner start an active login in the same company", async () => {
     const app = await createApp();
 
     const first = await request(app)
@@ -528,13 +734,16 @@ describe("adapter device-login routes", () => {
     expect(first.status, JSON.stringify(first.body)).toBe(201);
 
     // A different owner starts a second login for the same company and adapter.
+    // The active slot is scoped to the company, the owner, and the adapter, so
+    // the second owner holds an independent slot and the start succeeds.
     currentActor = boardActor(OWNER_B);
     const second = await request(app)
       .post(loginPath(COMPANY_1))
       .send({ environmentId: SANDBOX_ENV_1 });
-    expect(second.status, JSON.stringify(second.body)).toBe(409);
-    // The second start never acquires a lease.
-    expect(harness.acquisitions).toHaveLength(1);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body.sessionId).not.toBe(first.body.sessionId);
+    // Each owner's start acquires its own lease.
+    expect(harness.acquisitions).toHaveLength(2);
   });
 
   it("returns 409 for a second active start in a different environment", async () => {
@@ -573,7 +782,10 @@ describe("adapter device-login routes", () => {
       expect(status.body.failure?.reason).toBe("promotion_failed");
     });
 
-    const row = (harness.store as ReturnType<typeof createMemoryStore>).rows.get(sessionId);
+    const row = await (harness.store as ReturnType<typeof createMemoryStore>).getByPublicId(
+      sessionId,
+      COMPANY_1,
+    );
     expect(row?.status).toBe("failed");
     expect(mockDeviceLoginPromotion).toHaveBeenCalledTimes(1);
   });
@@ -599,7 +811,10 @@ describe("adapter device-login routes", () => {
       expect(status.body.failure?.reason).toBe("promotion_failed");
     });
 
-    const row = (harness.store as ReturnType<typeof createMemoryStore>).rows.get(sessionId);
+    const row = await (harness.store as ReturnType<typeof createMemoryStore>).getByPublicId(
+      sessionId,
+      COMPANY_1,
+    );
     expect(row?.status).toBe("failed");
     expect(mockDeviceLoginPromotion).toHaveBeenCalledTimes(1);
   });

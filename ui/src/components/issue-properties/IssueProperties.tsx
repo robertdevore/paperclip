@@ -5,7 +5,12 @@ import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { issueStatusText } from "@/lib/status-colors";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { Link } from "@/lib/router";
-import { deriveOriginatingActor, type Issue, type IssueLabel } from "@paperclipai/shared";
+import {
+  deriveOriginatingActor,
+  isArtifactReviewDocumentKey,
+  type Issue,
+  type IssueLabel,
+} from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { accessApi } from "../../api/access";
 import { agentsApi } from "../../api/agents";
@@ -148,6 +153,13 @@ interface IssuePropertiesProps {
   onRetryExternalObjects?: () => void;
   onCheckMonitorNow?: () => void;
   checkingMonitorNow?: boolean;
+  documentDeepLink?: IssuePropertiesDocumentDeepLink | null;
+}
+
+export interface IssuePropertiesDocumentDeepLink {
+  requestId: number;
+  tab: "plans" | "artifacts";
+  documentKey: string;
 }
 
 const ISSUE_BLOCKER_SEARCH_LIMIT = 50;
@@ -166,6 +178,7 @@ export function IssueProperties({
   onRetryExternalObjects,
   onCheckMonitorNow,
   checkingMonitorNow = false,
+  documentDeepLink,
 }: IssuePropertiesProps) {
   const { selectedCompanyId } = useCompany();
   const { isMobile } = useSidebar();
@@ -176,6 +189,13 @@ export function IssueProperties({
     queryFn: () => instanceSettingsApi.getExperimental(),
   });
   const taskWatchdogsEnabled = experimentalSettings?.enableTaskWatchdogs === true;
+  // Managed-sandbox-only policy: the workspace folder is a host filesystem
+  // path, so the Folder row disappears. The Branch row above it stays. The gate
+  // fails closed whenever the policy is unknown — in flight and also on a failed
+  // read — because an unresolved policy reads as "not managed" and would show
+  // the folder the policy exists to hide.
+  const hideHostPaths =
+    experimentalSettings === undefined || experimentalSettings.enableManagedSandboxOnly === true;
   // Classic Task Interface: gate the Properties | Plans | Artifacts tab shell.
   // Flag ON renders the legacy stacked sections verbatim (no Tabs wrapper);
   // flag OFF — including while settings load — renders the chat-style tab
@@ -217,10 +237,15 @@ export function IssueProperties({
     enabled: taskChatShellEnabled,
   });
   const { data: paneTabDocuments } = useIssueDocuments(taskChatShellEnabled ? issue.id : null);
+  // Proxy `artifact-review-*` documents surface only through their Work
+  // product row, so they must not summon the Plan or Documents surfaces.
+  const paneTabStandaloneDocuments = (paneTabDocuments ?? []).filter(
+    (doc) => !isArtifactReviewDocumentKey(doc.key),
+  );
   const hasPlanTab =
     Boolean(paneTabPlanDocument)
     || (paneTabAcceptedPlans?.length ?? 0) > 0
-    || (paneTabDocuments?.length ?? 0) > 0
+    || paneTabStandaloneDocuments.length > 0
     || issue.workMode === "planning";
   // Artifacts covers the same three sources the tab body composes: work
   // products, documents (redundant with the Plan tab, intentionally), and
@@ -228,7 +253,7 @@ export function IssueProperties({
   // no longer summon the tab.
   const hasArtifactsTab =
     (paneTabWorkProducts?.length ?? 0) > 0
-    || (paneTabDocuments?.length ?? 0) > 0
+    || paneTabStandaloneDocuments.length > 0
     || selectAgentArtifactAttachments(paneTabAttachments, paneTabWorkProducts).length > 0;
   const [paneTab, setPaneTab] = useState("properties");
   // Once a plan document exists, surface it: switch the pane to the Plan tab so
@@ -245,6 +270,11 @@ export function IssueProperties({
       setPaneTab("plans");
     }
   }, [hasPlanTab]);
+  useEffect(() => {
+    if (!documentDeepLink) return;
+    paneTabUserChosenRef.current = true;
+    setPaneTab(documentDeepLink.tab);
+  }, [documentDeepLink]);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   /** When a run is live, a selection is staged here until the operator confirms
@@ -2459,7 +2489,7 @@ export function IssueProperties({
               />
             </PropertyRow>
           )}
-          {issue.currentExecutionWorkspace?.cwd && (
+          {issue.currentExecutionWorkspace?.cwd && !hideHostPaths && (
             <PropertyRow label="Folder">
               <TruncatedCopyable
                 value={issue.currentExecutionWorkspace.cwd}
@@ -2655,7 +2685,10 @@ export function IssueProperties({
       ) : null}
       {hasArtifactsTab ? (
         <TabsContent value="artifacts">
-          <IssuePropertiesArtifactsTab issue={issue} />
+          <IssuePropertiesArtifactsTab
+            issue={issue}
+            documentDeepLink={documentDeepLink?.tab === "artifacts" ? documentDeepLink : null}
+          />
         </TabsContent>
       ) : null}
     </Tabs>
