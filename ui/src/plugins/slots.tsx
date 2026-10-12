@@ -617,10 +617,11 @@ function usePluginModuleLoader(contributions: PluginUiContribution[] | undefined
   useEffect(() => {
     if (!contributions || contributions.length === 0) return;
 
-    // Filter to contributions that haven't been loaded yet.
+    // Also await imports started by another consumer so this observer gets a
+    // completion render even when there is no export registration (e.g. errors).
     const unloaded = contributions.filter((c) => {
       const state = pluginLoadStates.get(buildPluginModuleKey(c));
-      return state !== "loaded" && state !== "loading";
+      return state !== "loaded";
     });
 
     if (unloaded.length === 0) return;
@@ -656,9 +657,6 @@ export function usePluginSlots(filters: SlotFilters): UsePluginSlotsResult {
     enabled: queryEnabled,
   });
 
-  // Kick off dynamic imports for any new plugin contributions.
-  usePluginModuleLoader(data);
-
   const slotTypesKey = useMemo(() => [...filters.slotTypes].sort().join("|"), [filters.slotTypes]);
 
   const slots = useMemo(() => {
@@ -691,8 +689,13 @@ export function usePluginSlots(filters: SlotFilters): UsePluginSlotsResult {
     return rows;
   }, [data, filters.entityType, slotTypesKey]);
 
-  // Consider loading until both query and module imports are done.
-  const modulesLoaded = data ? aggregateLoadState(data) === "loaded" : true;
+  // A replacement surface must not disappear while an unrelated plugin loads.
+  const contributions = useMemo(() => {
+    const pluginIds = new Set(slots.map(slot => slot.pluginId));
+    return data?.filter(contribution => pluginIds.has(contribution.pluginId));
+  }, [data, slots]);
+  usePluginModuleLoader(contributions);
+  const modulesLoaded = contributions ? aggregateLoadState(contributions) === "loaded" : true;
   const isLoading = queryEnabled && (isQueryLoading || !modulesLoaded);
 
   return {
@@ -704,6 +707,7 @@ export function usePluginSlots(filters: SlotFilters): UsePluginSlotsResult {
 
 type PluginSlotErrorBoundaryProps = {
   slot: ResolvedPluginSlot;
+  fallback?: ReactNode;
   className?: string;
   children: ReactNode;
 };
@@ -731,6 +735,7 @@ class PluginSlotErrorBoundary extends Component<PluginSlotErrorBoundaryProps, Pl
 
   override render() {
     if (this.state.hasError) {
+      if (this.props.fallback !== undefined) return this.props.fallback;
       return (
         <div className={cn("rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive", this.props.className)}>
           {this.props.slot.pluginDisplayName}: failed to render
@@ -774,6 +779,10 @@ type PluginSlotMountProps = {
   className?: string;
   missingBehavior?: "hidden" | "placeholder";
   exportName?: string;
+  /** Host-specific props; slot/context cannot be overridden. */
+  componentProps?: Record<string, unknown>;
+  /** Preserve required host navigation if an optional component is unavailable. */
+  fallback?: ReactNode;
 };
 
 /**
@@ -834,6 +843,8 @@ export function PluginSlotMount({
   className,
   missingBehavior = "hidden",
   exportName,
+  componentProps,
+  fallback,
 }: PluginSlotMountProps) {
   usePluginRegistrySubscription();
   const [, forceRerender] = useState(0);
@@ -858,6 +869,7 @@ export function PluginSlotMount({
   }, [component, slot.pluginId, resolvedExportName]);
 
   if (!component) {
+    if (fallback !== undefined) return fallback;
     if (missingBehavior === "hidden") return null;
     return (
       <div className={cn("rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground", className)}>
@@ -867,15 +879,17 @@ export function PluginSlotMount({
   }
 
   if (component.kind === "react") {
-    const node = createElement(component.component, { slot, context });
+    const node = createElement(component.component, { ...componentProps, slot, context });
     return (
-      <PluginSlotErrorBoundary slot={slot} className={className}>
+      <PluginSlotErrorBoundary key={`${slot.pluginId}:${slot.pluginVersion}:${slot.id}`} slot={slot} className={className} fallback={fallback}>
         <PluginBridgeScope pluginId={slot.pluginId} context={context}>
           {className ? <div className={className}>{node}</div> : node}
         </PluginBridgeScope>
       </PluginSlotErrorBoundary>
     );
   }
+
+  if (componentProps && fallback !== undefined) return fallback;
 
   return (
     <PluginSlotErrorBoundary slot={slot} className={className}>
@@ -897,6 +911,12 @@ type PluginSlotOutletProps = {
   itemClassName?: string;
   errorClassName?: string;
   missingBehavior?: "hidden" | "placeholder";
+  /**
+   * `hidden` suppresses the inline error and keeps rendering the last loaded
+   * slots, so ambient chrome (the sidebar) stays quiet while the server is
+   * unreachable.
+   */
+  errorBehavior?: "inline" | "hidden";
 };
 
 export function PluginSlotOutlet({
@@ -907,6 +927,7 @@ export function PluginSlotOutlet({
   itemClassName,
   errorClassName,
   missingBehavior = "hidden",
+  errorBehavior = "inline",
 }: PluginSlotOutletProps) {
   const { slots, errorMessage } = usePluginSlots({
     slotTypes,
@@ -914,7 +935,7 @@ export function PluginSlotOutlet({
     companyId: context.companyId,
   });
 
-  if (errorMessage) {
+  if (errorMessage && errorBehavior === "inline") {
     return (
       <div className={cn("rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs text-destructive", errorClassName)}>
         Plugin extensions unavailable: {errorMessage}
