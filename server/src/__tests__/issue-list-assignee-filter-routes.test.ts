@@ -97,6 +97,33 @@ describeEmbeddedPostgres("issue list routes assigneeAgentId filter", () => {
     });
   }
 
+  it("filters explicit issue IDs without including other company issues or empty selections", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const selectedId = randomUUID();
+    const otherId = randomUUID();
+    await db.insert(companies).values([
+      { id: companyId, name: "Selected company", issuePrefix: uniqueIssuePrefix() },
+      { id: otherCompanyId, name: "Other company", issuePrefix: uniqueIssuePrefix() },
+    ]);
+    await seedCloudTenantMember(companyId);
+    await db.insert(issues).values([
+      { id: selectedId, companyId, title: "Starred", status: "todo" },
+      { id: randomUUID(), companyId, title: "Not starred", status: "todo" },
+      { id: otherId, companyId: otherCompanyId, title: "Other company", status: "todo" },
+    ]);
+    const app = createApp(companyId);
+    const selected = await request(app).get(`/api/companies/${companyId}/issues`)
+      .query({ issueIds: [selectedId, otherId] });
+    expect(selected.status).toBe(200);
+    expect(selected.body.map((row: { id: string }) => row.id)).toEqual([selectedId]);
+    const empty = await request(app).get(`/api/companies/${companyId}/issues`).query({ issueIds: "" });
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual([]);
+    const invalid = await request(app).get(`/api/companies/${companyId}/issues`).query({ issueIds: "not-an-id" });
+    expect(invalid.status).toBe(400);
+  });
+
   it("returns only unassigned issues for assigneeAgentId=null", async () => {
     const companyId = randomUUID();
     const assigneeAgentId = randomUUID();

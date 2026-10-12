@@ -8469,7 +8469,7 @@ export function issueRoutes(
       inboxArchivedByUserId,
       unreadForUserId,
       projectId: req.query.projectId as string | undefined,
-      issueIds: issueIds.length > 0 ? issueIds : undefined,
+      issueIds: rawIssueIds !== undefined ? issueIds : undefined,
       workspaceId: req.query.workspaceId as string | undefined,
       executionWorkspaceId: req.query.executionWorkspaceId as
         string | undefined,

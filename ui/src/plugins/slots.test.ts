@@ -50,6 +50,23 @@ describe("plugin slot export registration", () => {
     expect(exports).toEqual(new Set(["Page", "RouteSidebar", "webComponentTag"]));
   });
 
+  it("mounts an alternate badge export while retaining the original detail slot", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    roots.push(root);
+    const slot: ResolvedPluginSlot = {
+      type: "detailTab", id: "goals", displayName: "Related Issues", exportName: "GoalTab",
+      pluginId: "goal-plugin", pluginKey: "goal-plugin", pluginDisplayName: "Goals", pluginVersion: "1.0.0",
+    };
+    registerPluginWebComponent("goal-plugin", "GoalTab", "paperclip-test-goal-tab");
+    registerPluginWebComponent("goal-plugin", "GoalBadge", "paperclip-test-goal-badge");
+    flushSync(() => root.render(createElement(PluginSlotMount, {
+      slot, context: { companyId: "company-1", entityId: "goal-1", entityType: "goal" }, exportName: "GoalBadge",
+    })));
+    expect(container.querySelector("paperclip-test-goal-badge")).not.toBeNull();
+    expect(container.querySelector("paperclip-test-goal-tab")).toBeNull();
+  });
+
   it("updates an already-mounted placeholder when the slot export registers later", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

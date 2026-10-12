@@ -10,7 +10,7 @@ Agent access: [companion](../agent-access-map/plugins.md).
 
 - `installation`: install a trusted test package or local development plugin through supported controls.
 - `configuration`: save validated configuration and inspect activation/failure state.
-- `contributions`: open plugin routes, settings, tools, and contributed resource tabs.
+- `contributions`: open plugin routes, settings, tools, and contributed resource tabs. The local host also mounts issue header actions and goal detail tabs with optional dynamic badges.
 - `lifecycle`: disable/remove or reload a disposable plugin and observe cleanup.
 
 ## How to get to it (user POV)
@@ -36,6 +36,8 @@ Manual: Install the fixture, supply its configuration, activate it, and inspect 
 ### `plugin-contribution`
 
 Automated: [static plugin UI](../../server/src/__tests__/plugin-ui-static.test.ts) and [company settings contribution](../../ui/src/pages/CompanySettingsPluginPage.test.tsx) cover serving/host behavior.
+
+Local compatibility checks: [header action capability](../../server/src/__tests__/plugin-issue-header-action.test.ts), [issue ID filtering](../../server/src/__tests__/issue-list-assignee-filter-routes.test.ts), and [alternate badge exports](../../ui/src/plugins/slots.test.ts). Verify Starred toggles and its filtered native list, then Goal Issues linking in both directions and its live tab count. Restore any changed fixture state.
 
 Manual: Open the contributed page by navigation and cold deep link, perform a harmless plugin action, and inspect its real outcome. Switch company and test an actor without the capability. Reload with the plugin unavailable and verify the host reports that state.
 

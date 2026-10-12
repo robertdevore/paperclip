@@ -79,6 +79,8 @@ credentials/run context; inspect its result and applicable persistence/attributi
 Assert the relevant denied actor, owner, company or mode from Policy. Review the
 remaining operations before qualifying the whole capability.
 
+Local host extension: `issueHeaderAction` requires `ui.action.register`; it does not grant agent access to board-authenticated plugin API routes. The native `issueIds` filter retains company/read-policy restrictions.
+
 Gaps: Actual plugin tool use exists; a contributed UI route alone does not prove that
 plugin's API/tool coverage.
 

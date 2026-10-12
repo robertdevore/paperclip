@@ -235,6 +235,12 @@ describe("plugin UI slot validators", () => {
     expect(parsed.error.issues.some((issue) => issue.message.includes("reserved by the host"))).toBe(true);
   });
 
+  it("accepts issue header actions only with explicit entity targets", () => {
+    const slot = { type: "issueHeaderAction", id: "star", displayName: "Star", exportName: "Star" };
+    expect(pluginUiSlotDeclarationSchema.safeParse(slot).success).toBe(false);
+    expect(pluginUiSlotDeclarationSchema.parse({ ...slot, entityTypes: ["issue"] }).type).toBe("issueHeaderAction");
+  });
+
   it("accepts workspace entity types as detailTab targets", () => {
     const parsed = pluginUiSlotDeclarationSchema.parse({
       type: "detailTab",

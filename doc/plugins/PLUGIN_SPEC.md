@@ -1846,3 +1846,12 @@ Paperclip should implement:
 - strict preservation of core governance and audit rules
 
 That is the complete target design for the Paperclip plugin system.
+
+### Local host compatibility extensions
+
+The local integration branch supports `issueHeaderAction` contributions with explicit
+issue entity targeting and company/project/issue context in the common issue header.
+The SDK IssuesList `issueIds` filter passes a bounded UUID selection through the
+company-scoped issue API; an explicit empty selection returns no issues. These host
+extensions support the external Starred Issues plugin. Goal detail tabs and dynamic
+`badgeExportName` exports remain available for Goal Issues after upstream upgrades.
